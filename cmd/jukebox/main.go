@@ -23,6 +23,8 @@ import (
 	"github.com/ryjen/jukebox/internal/musicassistant"
 )
 
+const defaultListenAddr = "127.0.0.1:8108" // Music Assistant uses 8095 (API) and 8097 (audio).
+
 //go:embed web/*
 var webAssets embed.FS
 
@@ -453,7 +455,7 @@ func main() {
 	}
 	addr := os.Getenv("JUKEBOX_LISTEN_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:8097"
+		addr = defaultListenAddr
 	}
 	if !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "localhost:") && os.Getenv("JUKEBOX_ALLOW_REMOTE") != "1" {
 		log.Fatal("non-loopback bind requires JUKEBOX_ALLOW_REMOTE=1 and an authenticated TLS ingress")

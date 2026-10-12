@@ -1,0 +1,14 @@
+# Music Assistant 2.10.6 disposable LAN lab only; not a production deployment.
+# Official Music Assistant requires host networking for real player discovery.
+# Digest is the GHCR published multi-architecture image manifest for 2.10.6.
+services:
+  music-assistant:
+    image: ghcr.io/music-assistant/server:2.10.6@sha256:45fdb050e06962097a07feeb092606ad119fac17965c8228a57146448d5fa772
+    container_name: jukebox-ma-lab
+    restart: "no"
+    network_mode: host
+    environment:
+      LOG_LEVEL: info
+    volumes:
+      - "${JUKEBOX_MA_DATA_DIR:?Set JUKEBOX_MA_DATA_DIR}:/data"
+      - "${JUKEBOX_MUSIC_DIR:?Set JUKEBOX_MUSIC_DIR}:/media:ro"
