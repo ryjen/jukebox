@@ -59,14 +59,14 @@ go vet ./...
 This experimental preview makes **no playback changes**. It reads the configured room player's active queue, and rejects unapproved group queues until room/group ownership is implemented. Guest access is still room-bound.
 
 ```sh
-# Configure a read-only token with QUEUES_READ and LIBRARY_READ in Music Assistant.
+# Configure a read-only token with QUEUES_READ, PLAYERS_READ and LIBRARY_READ in Music Assistant.
 # Never expose it to browsers or commit it to source.
 export JUKEBOX_MA_URL=http://127.0.0.1:8095
 export JUKEBOX_MA_TOKEN="your-read-only-token"
 go run ./cmd/jukebox
 ```
 
-The server uses the pinned Music Assistant 2.10.6 `POST /api` HTTP command transport for `player_queues/get_active_queue` and `player_queues/items`, with a maximum of 25 queue items. In the web room view, select **Refresh playback**. A client may also call `GET /api/rooms/<room-id>/queue` using its room bearer. Without both configuration values this route returns 503; invalid upstream responses return 502, and unexpected group queues return 409. Requests submitted to the request board are **never** transmitted to Music Assistant.
+The token requires `QUEUES_READ` and `PLAYERS_READ`, since detecting native synchronized group coordinators requires the player's actual membership, not just its queue ID. The server uses the pinned Music Assistant 2.10.6 `POST /api` HTTP command transport for `player_queues/get_active_queue` and `player_queues/items`, with a maximum of 25 queue items. In the web room view, select **Refresh playback**. A client may also call `GET /api/rooms/<room-id>/queue` using its room bearer. Without both configuration values this route returns 503; invalid upstream responses return 502, and unexpected group queues return 409. Requests submitted to the request board are **never** transmitted to Music Assistant.
 
 Music Assistant's `music/search` command is also available in a **read-only catalogue preview** through `GET /api/rooms/<room-id>/search?q=<query>`. The token must additionally have `LIBRARY_READ` scope. Search covers the local library and configured cloud providers; Jukebox projects only track URI, name, artist and provider. Queries are limited to 2–80 characters, 15 displayed results and 40 attempts per room session. Selecting a search result only copies metadata into the local request form—it does not enqueue playback. Cloud entitlements and provider availability are governed by Music Assistant and must be verified on a real instance.
 
