@@ -48,11 +48,11 @@ type invite struct {
 	Expires time.Time
 }
 type session struct {
-	ID          string
-	RoomID      string
-	Expires     time.Time
-	Count       int
-	SearchCount int
+	ID                    string
+	RoomID                string
+	Expires               time.Time
+	Count                 int
+	SearchCount           int
 	UsedCatalogSelections map[[32]byte]struct{} // bounded by the per-session request quota
 }
 type request struct {
