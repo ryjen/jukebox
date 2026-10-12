@@ -15,6 +15,7 @@ const reset = () => {
   sessionStorage.removeItem('jukebox-room');
   bearer = null;
   currentRoom = null;
+  el('live-queue').replaceChildren();
   el('board').classList.add('hidden');
   el('join-panel').classList.remove('hidden');
 };
@@ -53,6 +54,7 @@ async function refresh() {
 }
 const joined = async (room) => {
   currentRoom = room;
+  el('live-queue').replaceChildren();
   sessionStorage.setItem('jukebox-room', room);
   el('board-heading').textContent = `Requests · ${room}`;
   el('join-panel').classList.add('hidden');
@@ -80,6 +82,25 @@ el('request-form').addEventListener('submit', async (event) => {
     say('Request recorded locally. No music was queued.');
     await refresh();
   } catch (error) { say(error.message); }
+});
+el('read-queue').addEventListener('click', async () => {
+  if (!currentRoom || !bearer) return;
+  const output = el('live-queue');
+  output.textContent = 'Contacting the configured room player…';
+  try {
+    const snapshot = await request(`/api/rooms/${encodeURIComponent(currentRoom)}/queue`);
+    const label = document.createElement('p');
+    label.textContent = `Player: ${snapshot.queueId} · ${snapshot.state}`;
+    const list = document.createElement('ol');
+    for (const item of snapshot.items) {
+      const li = document.createElement('li');
+      li.textContent = item.name || 'Unknown track';
+      list.appendChild(li);
+    }
+    output.replaceChildren(label, list);
+  } catch (error) {
+    output.textContent = `Playback preview unavailable: ${error.message}`;
+  }
 });
 el('leave').addEventListener('click', () => { reset(); say('Local session cleared. Ask your host to revoke it on the server if needed.'); });
 (async () => {
