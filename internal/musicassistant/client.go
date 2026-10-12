@@ -72,7 +72,7 @@ func New(rawURL, token string) (*Client, error) {
 // command sends only hardcoded queue-read commands; callers cannot supply
 // command names. The 2.10.6 HTTP API returns the result directly as JSON.
 func (c *Client) command(ctx context.Context, name string, args any) (json.RawMessage, error) {
-	if name != "player_queues/get_active_queue" && name != "player_queues/items" {
+	if name != "player_queues/get_active_queue" && name != "player_queues/items" && name != "music/search" {
 		return nil, ErrUnavailable
 	}
 	payload, err := json.Marshal(struct {

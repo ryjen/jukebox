@@ -48,6 +48,7 @@ type session struct {
 	RoomID  string
 	Expires time.Time
 	Count   int
+	SearchCount int
 }
 type request struct {
 	ID          string    `json:"id"`
@@ -313,6 +314,49 @@ func (s *server) handler() http.Handler {
 			return
 		}
 		send(w, 200, snapshot)
+	})
+	mux.HandleFunc("GET /api/rooms/{room}/search", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("room")
+		if !s.auth(r, id) {
+			fail(w, 403, "room access denied")
+			return
+		}
+		if s.ma == nil {
+			fail(w, 503, "music assistant not configured")
+			return
+		}
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		if n := utf8.RuneCountInString(query); n < 2 || n > 80 {
+			fail(w, 400, "invalid search query")
+			return
+		}
+		// Search can fan out to remote streaming services. Bound the work per
+		// guest session rather than exposing a general-purpose API proxy.
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		s.mu.Lock()
+		sess, ok := s.sessions[token]
+		if !ok || !s.now().Before(sess.Expires) || sess.RoomID != id {
+			s.mu.Unlock()
+			fail(w, 403, "room access denied")
+			return
+		}
+		if sess.SearchCount >= 40 {
+			s.mu.Unlock()
+			fail(w, 429, "search limit reached")
+			return
+		}
+		sess.SearchCount++
+		s.mu.Unlock()
+		tracks, err := s.ma.SearchTracks(r.Context(), query)
+		if err != nil {
+			fail(w, 502, "music assistant unavailable")
+			return
+		}
+		if !s.auth(r, id) {
+			fail(w, 403, "room access denied")
+			return
+		}
+		send(w, 200, map[string]any{"tracks": tracks})
 	})
 	mux.HandleFunc("GET /api/rooms/{room}/requests", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("room")

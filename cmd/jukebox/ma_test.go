@@ -75,3 +75,54 @@ func TestQueueDisabledAndGroupsDenied(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestRoomBoundFederatedSearchAndQuota(t *testing.T) {
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var command struct {
+			Command string `json:"command"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&command); err != nil {
+			t.Error(err)
+		}
+		if command.Command != "music/search" {
+			t.Errorf("unexpected upstream command %q", command.Command)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"tracks":[{"uri":"library://track/1","name":"Dreams","artists":[{"name":"Fleetwood Mac"}],"provider":"library"}]}`)
+	}))
+	defer upstream.Close()
+	s, _ := fixture(t)
+	ma, err := musicassistant.New(upstream.URL, "example-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ma = ma
+	guest := join(t, s, "living")
+	other := join(t, s, "office")
+	if got := call(s, "GET", "/api/rooms/living/search?q=dreams", nil, other).Code; got != 403 {
+		t.Fatalf("cross-room search access: %d", got)
+	}
+	if got := call(s, "GET", "/api/rooms/living/search?q=x", nil, guest).Code; got != 400 {
+		t.Fatalf("invalid search accepted: %d", got)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("unauthorized or malformed search contacted upstream")
+	}
+	for i := 0; i < 40; i++ {
+		r := call(s, "GET", "/api/rooms/living/search?q=dreams", nil, guest)
+		if r.Code != 200 || !strings.Contains(r.Body.String(), "Fleetwood Mac") {
+			t.Fatalf("search %d failed: %d %s", i, r.Code, r.Body.String())
+		}
+	}
+	if got := call(s, "GET", "/api/rooms/living/search?q=dreams", nil, guest).Code; got != 429 {
+		t.Fatalf("search rate limit bypass: %d", got)
+	}
+	if calls.Load() != 40 {
+		t.Fatalf("unexpected call count: %d", calls.Load())
+	}
+	if got := call(s, "GET", "/api/rooms/office/search?q=dreams", nil, other).Code; got != 200 {
+		t.Fatalf("unrelated room wrongly throttled: %d", got)
+	}
+}
