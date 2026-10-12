@@ -1,0 +1,36 @@
+:root { color-scheme: dark; font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#0d1723; color:#edf2f7; font-size:16px }
+* { box-sizing:border-box }
+body { margin:0 }
+.shell { max-width:850px; margin:0 auto; padding:clamp(16px,4vw,48px) }
+h1 { font-size:clamp(2.4rem,8vw,4rem); margin:0; letter-spacing:-.04em }
+h2 { margin:0 0 16px; font-size:1.3rem }
+h3 { margin-top:24px }
+.hero,.boardhead { display:flex; align-items:center; justify-content:space-between; gap:20px }
+.hero { padding-bottom:30px }
+.eyebrow { color:#8cb4d3; font-size:.73rem; font-weight:700; letter-spacing:.15em; margin:0 0 6px }
+.muted,footer { color:#a8bac9 }
+.status { border:1px solid #577083; border-radius:999px; padding:8px 12px; font-size:.75rem; white-space:nowrap }
+.notice { border-left:3px solid #e8bc65; background:#29303a; padding:15px; margin-bottom:18px; line-height:1.5 }
+.panel { border:1px solid #37485a; background:#172638; border-radius:18px; padding:24px; margin-bottom:18px }
+.rooms { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px }
+.room { background:#22364b; border:1px solid #46617b; border-radius:13px; padding:18px }
+.room strong { display:block; font-size:1rem }
+.room small { color:#a8bac9 }
+label { display:block; margin:14px 0 8px; font-weight:600; font-size:.9rem }
+input,select,button { font:inherit; border-radius:10px; padding:12px; min-height:46px }
+input,select { width:100%; background:#101d2b; border:1px solid #64778b; color:#f3f7fc }
+button { background:#8cc7f4; color:#0b2235; border:0; font-weight:700; cursor:pointer }
+button:hover { background:#b4ddf8 }
+button:focus-visible,input:focus-visible,select:focus-visible { outline:3px solid #f5bf55; outline-offset:2px }
+.secondary { background:transparent; border:1px solid #7ea9ca; color:#c7e5fa }
+.formrow { display:flex; gap:10px }
+.formrow input { flex:1; min-width:0 }
+.hidden { display:none }
+.requests { display:grid; gap:8px }
+.item { padding:12px 14px; border-radius:9px; background:#203449 }
+.item strong { display:block }
+.item span { font-size:.8rem; color:#a8bac9 }
+#request-form button { width:100%; margin-top:18px }
+.message { min-height:24px; color:#f5bf55 }
+footer { font-size:.8rem; padding:18px 0 }
+@media(max-width:570px) { .hero,.boardhead { align-items:flex-start; flex-direction:column } .panel {padding:18px} .formrow {flex-direction:column} .formrow button {width:100%} }

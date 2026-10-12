@@ -1,0 +1,6 @@
+{
+  "rooms": [
+    {"id": "living-room", "name": "Living Room", "playerId": "living-room-player"},
+    {"id": "office", "name": "Office", "playerId": "office-player"}
+  ]
+}
