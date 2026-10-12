@@ -72,7 +72,7 @@ func New(rawURL, token string) (*Client, error) {
 // command sends only hardcoded queue-read commands; callers cannot supply
 // command names. The 2.10.6 HTTP API returns the result directly as JSON.
 func (c *Client) command(ctx context.Context, name string, args any) (json.RawMessage, error) {
-	if name != "player_queues/get_active_queue" && name != "player_queues/items" {
+	if name != "player_queues/get_active_queue" && name != "player_queues/items" && name != "players/get" {
 		return nil, ErrUnavailable
 	}
 	payload, err := json.Marshal(struct {
@@ -108,12 +108,52 @@ func (c *Client) command(ctx context.Context, name string, args any) (json.RawMe
 	return raw, nil
 }
 
-// ReadQueue refuses group-player queue changes until Jukebox implements
-// explicit group membership authorization. No write or autoplay is possible.
+// requireStandalonePlayer checks group membership explicitly: a native group
+// coordinator may still own a queue with the same ID as its player. A
+// read-only player scope is required in addition to QUEUES_READ.
+func (c *Client) requireStandalonePlayer(ctx context.Context, playerID string) error {
+	data, err := c.command(ctx, "players/get", map[string]any{"player_id": playerID})
+	if err != nil {
+		return err
+	}
+	var state struct {
+		PlayerID string   `json:"player_id"`
+		Type string       `json:"type"`
+		Available *bool   `json:"available"`
+		Enabled *bool     `json:"enabled"`
+		GroupMembers *[]string `json:"group_members"`
+		StaticGroupMembers []string `json:"static_group_members"`
+		SyncedTo *string  `json:"synced_to"`
+		ActiveGroup *string `json:"active_group"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil ||
+		state.PlayerID != playerID || state.Type == "" ||
+		state.Available == nil || !*state.Available || state.Enabled == nil || !*state.Enabled ||
+		state.GroupMembers == nil {
+		return fmt.Errorf("%w: invalid player state", ErrUnavailable)
+	}
+	if state.Type == "group" || len(state.StaticGroupMembers) != 0 ||
+		(state.SyncedTo != nil && *state.SyncedTo != "") ||
+		(state.ActiveGroup != nil && *state.ActiveGroup != "") {
+		return ErrGrouped
+	}
+	for _, memberID := range *state.GroupMembers {
+		if memberID != playerID {
+			return ErrGrouped
+		}
+	}
+	return nil
+}
+
+// ReadQueue refuses group queues, including native coordinator-owned queues,
+// until explicit group membership authorization exists. No write is possible.
 func (c *Client) ReadQueue(ctx context.Context, playerID string) (Snapshot, error) {
 	var empty Snapshot
 	if playerID == "" {
 		return empty, ErrUnavailable
+	}
+	if err := c.requireStandalonePlayer(ctx, playerID); err != nil {
+		return empty, err
 	}
 	raw, err := c.command(ctx, "player_queues/get_active_queue", map[string]any{"player_id": playerID})
 	if err != nil {
@@ -125,6 +165,7 @@ func (c *Client) ReadQueue(ctx context.Context, playerID string) (Snapshot, erro
 	var active struct {
 		QueueID string `json:"queue_id"`
 		State   string `json:"state"`
+		CurrentIndex *int `json:"current_index"`
 	}
 	if err := json.Unmarshal(raw, &active); err != nil || active.QueueID == "" {
 		return empty, fmt.Errorf("%w: unknown queue response", ErrUnavailable)
@@ -132,7 +173,15 @@ func (c *Client) ReadQueue(ctx context.Context, playerID string) (Snapshot, erro
 	if active.QueueID != playerID {
 		return empty, ErrGrouped
 	}
-	raw, err = c.command(ctx, "player_queues/items", map[string]any{"queue_id": active.QueueID, "limit": 25, "offset": 0})
+	// Prefer the current item and upcoming tracks, not already-played entries.
+	offset := 0
+	if active.CurrentIndex != nil {
+		if *active.CurrentIndex < 0 || *active.CurrentIndex > 1000000 {
+			return empty, fmt.Errorf("%w: invalid playhead", ErrUnavailable)
+		}
+		offset = *active.CurrentIndex
+	}
+	raw, err = c.command(ctx, "player_queues/items", map[string]any{"queue_id": active.QueueID, "limit": 25, "offset": offset})
 	if err != nil {
 		return empty, err
 	}
@@ -142,6 +191,11 @@ func (c *Client) ReadQueue(ctx context.Context, playerID string) (Snapshot, erro
 	}
 	if err := json.Unmarshal(raw, &entries); err != nil || entries == nil {
 		return empty, fmt.Errorf("%w: unknown item response", ErrUnavailable)
+	}
+	// Recheck membership after the I/O boundary to prevent returning another
+	// room's queue when the player was grouped during the request.
+	if err := c.requireStandalonePlayer(ctx, playerID); err != nil {
+		return empty, err
 	}
 	result := Snapshot{QueueID: active.QueueID, State: active.State, Items: make([]Item, 0, len(entries)), Playback: "music-assistant"}
 	for _, entry := range entries {

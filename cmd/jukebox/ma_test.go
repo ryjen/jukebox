@@ -23,7 +23,9 @@ func TestQueueReadIsRoomScoped(t *testing.T) {
 			t.Error(err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if c.Command == "player_queues/get_active_queue" {
+		if c.Command == "players/get" {
+			fmt.Fprint(w, `{"player_id":"p1","type":"player","available":true,"enabled":true,"group_members":[]}`)
+		} else if c.Command == "player_queues/get_active_queue" {
 			fmt.Fprint(w, `{"queue_id":"p1","state":"playing"}`)
 		} else if c.Command == "player_queues/items" {
 			fmt.Fprint(w, `[{"queue_item_id":"x1","name":"A song"}]`)
@@ -50,7 +52,7 @@ func TestQueueReadIsRoomScoped(t *testing.T) {
 	if r.Code != 200 || !strings.Contains(r.Body.String(), "A song") {
 		t.Fatalf("queue: %d %s", r.Code, r.Body.String())
 	}
-	if strings.Contains(r.Body.String(), "example-token") || count.Load() != 2 {
+	if strings.Contains(r.Body.String(), "example-token") || count.Load() != 4 {
 		t.Fatal("exposure or wrong command count")
 	}
 }
@@ -62,8 +64,14 @@ func TestQueueDisabledAndGroupsDenied(t *testing.T) {
 		t.Fatal(got)
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c struct { Command string `json:"command"` }
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil { t.Error(err) }
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"queue_id":"other-group"}`)
+		if c.Command == "players/get" {
+			fmt.Fprint(w, `{"player_id":"p1","type":"player","available":true,"enabled":true,"group_members":[]}`)
+		} else {
+			fmt.Fprint(w, `{"queue_id":"other-group"}`)
+		}
 	}))
 	defer upstream.Close()
 	client, err := musicassistant.New(upstream.URL, "example-token")

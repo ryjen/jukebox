@@ -63,13 +63,15 @@ func TestReadQueueNeverMutatesPlaybackAndRedactsUpstreamData(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		switch cmd.Command {
+		case "players/get":
+			fmt.Fprint(w, `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":[]}`)
 		case "player_queues/get_active_queue":
 			if cmd.Args["player_id"] != "room-1" {
 				t.Error("wrong player", cmd.Args)
 			}
-			fmt.Fprint(w, `{"queue_id":"room-1","state":"playing","super_secret":"never-expose"}`)
+			fmt.Fprint(w, `{"queue_id":"room-1","state":"playing","current_index":27,"super_secret":"never-expose"}`)
 		case "player_queues/items":
-			if cmd.Args["queue_id"] != "room-1" || cmd.Args["limit"] != float64(25) {
+			if cmd.Args["queue_id"] != "room-1" || cmd.Args["limit"] != float64(25) || cmd.Args["offset"] != float64(27) {
 				t.Errorf("invalid bounded query: %+v", cmd.Args)
 			}
 			fmt.Fprint(w, `[{"queue_item_id":"q1","name":"曲 ♫","credentials":"private"}]`)
@@ -92,7 +94,7 @@ func TestReadQueueNeverMutatesPlaybackAndRedactsUpstreamData(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(commands) != 2 || commands[0] != "player_queues/get_active_queue" || commands[1] != "player_queues/items" {
+	if len(commands) != 4 || commands[0] != "players/get" || commands[1] != "player_queues/get_active_queue" || commands[2] != "player_queues/items" || commands[3] != "players/get" {
 		t.Errorf("unexpected upstream commands: %v", commands)
 	}
 }
@@ -102,7 +104,7 @@ func TestGroupedQueueFailsClosedBeforeReadingItems(t *testing.T) {
 	client, closeServer := localClient(t, func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"queue_id":"group-different","state":"playing"}`)
+		fmt.Fprint(w, `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":["room-1","other-room"]}`)
 	})
 	defer closeServer()
 	_, err := client.ReadQueue(context.Background(), "room-1")
@@ -134,7 +136,11 @@ func TestFailClosedOnBadResponseAndDeniedScope(t *testing.T) {
 				count++
 				w.Header().Set("Content-Type", testcase.contentType)
 				w.WriteHeader(testcase.status)
-				if testcase.name == "items-wrong-shape" && count == 2 {
+				if testcase.name == "items-wrong-shape" && count == 1 {
+					fmt.Fprint(w, `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":[]}`)
+				} else if testcase.name == "items-wrong-shape" && count == 2 {
+					fmt.Fprint(w, `{"queue_id":"room-1","state":"idle"}`)
+				} else if testcase.name == "items-wrong-shape" && count == 3 {
 					fmt.Fprint(w, `{"items":"no"}`)
 				} else {
 					fmt.Fprint(w, testcase.payload)
@@ -165,5 +171,63 @@ func TestDoesNotFollowRedirectWithCredential(t *testing.T) {
 	_, err := client.ReadQueue(context.Background(), "room-1")
 	if !errors.Is(err, ErrUnavailable) || destinationHits.Load() != 0 {
 		t.Fatalf("followed redirect: %v (%d)", err, destinationHits.Load())
+	}
+}
+
+func TestRejectNativeGroupCoordinatorAndUnknownPlayerState(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want error
+	}{
+		{"native coordinator", `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":["room-1","room-2"]}`, ErrGrouped},
+		{"dedicated group", `{"player_id":"room-1","type":"group","available":true,"enabled":true,"group_members":[]}`, ErrGrouped},
+		{"synced child", `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":[],"synced_to":"group-1"}`, ErrGrouped},
+		{"active group", `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":[],"active_group":"group-1"}`, ErrGrouped},
+		{"static members", `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":[],"static_group_members":["child"]}`, ErrGrouped},
+		{"missing group field", `{"player_id":"room-1","type":"player","available":true,"enabled":true}`, ErrUnavailable},
+		{"unavailable", `{"player_id":"room-1","type":"player","available":false,"enabled":true,"group_members":[]}`, ErrUnavailable},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var count atomic.Int64
+			client, finish := localClient(t, func(w http.ResponseWriter, r *http.Request) {
+				count.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, tc.body)
+			})
+			defer finish()
+			_, err := client.ReadQueue(context.Background(), "room-1")
+			if !errors.Is(err, tc.want) || count.Load() != 1 {
+				t.Fatalf("group/invalid state not denied: err=%v calls=%d", err, count.Load())
+			}
+		})
+	}
+}
+
+func TestGroupMutationDuringQueueReadIsRejected(t *testing.T) {
+	var gets atomic.Int64
+	client, finish := localClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var cmd struct { Command string `json:"command"` }
+		if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil { t.Error(err) }
+		w.Header().Set("Content-Type", "application/json")
+		switch cmd.Command {
+		case "players/get":
+			if gets.Add(1) == 1 {
+				fmt.Fprint(w, `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":[]}`)
+			} else {
+				fmt.Fprint(w, `{"player_id":"room-1","type":"player","available":true,"enabled":true,"group_members":["room-1","child"]}`)
+			}
+		case "player_queues/get_active_queue":
+			fmt.Fprint(w, `{"queue_id":"room-1","state":"playing","current_index":1}`)
+		case "player_queues/items":
+			fmt.Fprint(w, `[{"queue_item_id":"item1","name":"Track"}]`)
+		default: t.Errorf("unexpected API command %q", cmd.Command)
+		}
+	})
+	defer finish()
+	_, err := client.ReadQueue(context.Background(), "room-1")
+	if !errors.Is(err, ErrGrouped) || gets.Load() != 2 {
+		t.Fatalf("post-read group membership change was not rejected: %v", err)
 	}
 }
