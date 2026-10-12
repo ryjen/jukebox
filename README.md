@@ -1,17 +1,63 @@
 # Jukebox
 
-Experimental, local-first multiroom digital jukebox for phones and browsers.
+Experimental local-first **multiroom digital jukebox** for phones and browsers.
 
-**Status:** repository initialization only. There is no deployable jukebox yet.
+**Current status:** a working, nonpersistent room-scoped *request-board prototype*. It **does not** search a real music catalogue, enqueue music in Music Assistant, control audio, group speakers, or play songs. These are [tracked delivery milestones](https://github.com/ryjen/jukebox/issues/1).
 
-## Direction
+## Product direction
 
-- Reuse [Music Assistant](https://music-assistant.io/) for the unified local/cloud catalogue, playback and synchronization.
-- Reuse the upstream Party plugin when possible; do not copy its implementation into this repository.
-- Support room-scoped guest requests and independent queues, with optional synchronized room groups.
-- Keep streaming credentials and playback administration outside the guest trust boundary.
-- Deploy separately through the Dubnium infrastructure when integration is ready.
+- Reuse [Music Assistant](https://music-assistant.io/) as the authority for local/cloud catalogues, physical players, their queues and synchronized playback.
+- Reuse/upstream Music Assistant Party functionality where feasible; no maintained server fork by default.
+- Expose room-scoped guest sessions with independent room queues, eventual temporary grouping, and a responsive phone/web interface.
+- Prefer offline-capable local playback; no subscription dependence for owned local media.
 
-Implementation, license, and distribution decisions will be recorded in the repository rather than inferred from its public visibility.
+## Run the experimental request board
 
-Engineering conventions: [Micrantha](https://github.com/hackelia-micrantha/.github/blob/main/docs/prompts/README.md).
+Requires Go 1.23+; no third-party packages. On a development machine:
+
+```sh
+# Run in the repository root. Supply your own strong secret; do not commit it.
+export JUKEBOX_ADMIN_TOKEN="$(openssl rand -hex 32)"
+go run ./cmd/jukebox
+# Open http://127.0.0.1:8097 in a browser
+```
+
+To create an **independent one-time** invitation for the `living-room` room:
+
+```sh
+curl --fail-with-body -sS \
+  -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"roomId":"living-room"}' \
+  http://127.0.0.1:8097/api/admin/invites
+```
+
+Paste the `inviteCode` into the web page. It expires in ten minutes; the exchanged session is bound to one room for eight hours. Issue a different invitation for the `office` room. The room-to-player mapping in [`config.example.json`](config.example.json) is **declarative only** until Music Assistant integration.
+
+Hosts can view active room sessions without accessing guest bearer tokens, then revoke a session by its admin-visible ID:
+
+```sh
+curl -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
+  http://127.0.0.1:8097/api/admin/sessions
+curl -X POST -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"sessionId":"<id-from-list>"}' \
+  http://127.0.0.1:8097/api/admin/revoke
+```
+
+`JUKEBOX_CONFIG` can point to a custom JSON configuration. `JUKEBOX_LISTEN_ADDR` defaults to loopback. Non-loopback binding requires the explicit `JUKEBOX_ALLOW_REMOTE=1` opt-in, but this is **not a substitute for an authenticated HTTPS reverse proxy and network isolation**. Do not deploy this experimental prototype directly on a public interface.
+
+### Verify
+
+```sh
+go test -race ./...
+go vet ./...
+```
+
+## Trust and operational limitations
+
+The host bearer is only read server-side; guest invite exchange is single-use and sessions are scoped to exactly one room. Room requests are bounded in memory and guest requests are **not** verified against music providers. Restart loses invites, sessions and requests. There is no persisted audit trail, token hashing, distributed limiting or production-grade reverse-proxy deployment.
+
+This public repository does **not currently declare a redistribution license**. Licensing is an explicit unresolved bootstrap decision; do not assume a permissive open-source license.
+
+Architecture and current limitations: [`docs/architecture/README.md`](docs/architecture/README.md). Delivery order: [epic #1](https://github.com/ryjen/jukebox/issues/1). Engineering policy: [Micrantha](https://github.com/hackelia-micrantha/.github).

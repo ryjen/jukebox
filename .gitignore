@@ -1,0 +1,10 @@
+# Local runtime state and secrets
+.env
+.env.*
+!.env.example
+*.secret
+/config.local.json
+/jukebox
+*.test
+coverage.out
+.DS_Store
