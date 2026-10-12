@@ -32,6 +32,14 @@ A guest may supply a requested track identity, but the adapter must look up a ca
 
 **Before choosing a write API:** prove the transport/authentication mechanism and queue command shape against the pinned release. `party/add_to_queue` is **not** approved for multiroom writes. Any write-capable backend needs per-room serialization, replay protection/idempotency, explicit autoplay policy and failure recovery. Prefer narrowly scoped upstream changes where practical.
 
+## Confirmed authenticated HTTP transport
+
+At commit `c24866405bd2068c25a60e1014e5ef8c3f6445bb`, `music_assistant/controllers/webserver/controller.py` registers `POST /api` and handles commands of the form `{"message_id":"...","command":"player_queues/items","args":{"queue_id":"..."}}`. Unlike WebSocket responses, its successful HTTP response contains the **result object/array directly**. Authentication uses `Authorization: Bearer <token>`; missing rights are rejected with HTTP 403. The Music Assistant [official API reference](https://www.music-assistant.io/api/) documents this transport.
+
+The read-only candidate [#9](https://github.com/ryjen/jukebox/issues/9) / [PR #10](https://github.com/ryjen/jukebox/pull/10) restricts commands to `player_queues/get_active_queue` and `player_queues/items`, keeps the credential server-side, and rejects active queue identities that do not match the configured independent room player. No music-source or queue-control permission should be required for this slice.
+
+**Limit of evidence:** pinned upstream source and mocked HTTP contracts are not real running Music Assistant authentication/integration evidence. A token with only `QUEUES_READ` and a live Music Assistant 2.10.6 server are still needed before deployment. Group ownership and cross-room visibility require separate design (#5).
+
 ## Required executable evidence for #3
 
 1. Run a local test Music Assistant **2.10.6** instance (or identical pinned commit); record image digest and the actual provider/frontend versions.
