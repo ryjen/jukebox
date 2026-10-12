@@ -6,15 +6,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ryjen/jukebox/internal/musicassistant"
 )
 
 func TestQueueReadIsRoomScoped(t *testing.T) {
-	count := 0
+	var count atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count++
+		count.Add(1)
 		var c struct {
 			Command string `json:"command"`
 		}
@@ -42,14 +43,14 @@ func TestQueueReadIsRoomScoped(t *testing.T) {
 	if got := call(s, "GET", "/api/rooms/living/queue", nil, other).Code; got != 403 {
 		t.Fatal(got)
 	}
-	if count != 0 {
+	if count.Load() != 0 {
 		t.Fatal("cross-room request hit upstream")
 	}
 	r := call(s, "GET", "/api/rooms/living/queue", nil, guest)
 	if r.Code != 200 || !strings.Contains(r.Body.String(), "A song") {
 		t.Fatalf("queue: %d %s", r.Code, r.Body.String())
 	}
-	if strings.Contains(r.Body.String(), "example-token") || count != 2 {
+	if strings.Contains(r.Body.String(), "example-token") || count.Load() != 2 {
 		t.Fatal("exposure or wrong command count")
 	}
 }
