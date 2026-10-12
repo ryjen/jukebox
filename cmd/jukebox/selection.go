@@ -1,8 +1,11 @@
 package main
 
 import (
-    "crypto/hmac"
+    "crypto/aes"
+    "crypto/cipher"
+    "crypto/rand"
     "crypto/sha256"
+    "crypto/subtle"
     "encoding/base64"
     "encoding/json"
     "errors"
@@ -13,8 +16,8 @@ import (
     "github.com/ryjen/jukebox/internal/musicassistant"
 )
 
-// Catalog choices are signed, short-lived claims bound to one guest session
-// and room. They attest to an upstream search result, never to playability.
+// Catalog choices are encrypted, authenticated, short-lived claims bound to
+// a room and session. They attest to an upstream search, not playability.
 type selectionClaim struct {
     Room string `json:"room"`
     Owner string `json:"owner"`
@@ -47,6 +50,14 @@ func validCatalogClaim(c selectionClaim) bool {
         utf8.ValidString(c.Artist) && utf8.RuneCountInString(c.Artist) <= 120
 }
 
+func (s *server) selectionAEAD() (cipher.AEAD,error) {
+    block,err:=aes.NewCipher(s.selectionKey)
+    if err!=nil {return nil,errInvalidSelection}
+    aead,err:=cipher.NewGCM(block)
+    if err!=nil {return nil,errInvalidSelection}
+    return aead,nil
+}
+
 func (s *server) signCatalogChoice(roomID, guestToken string, item musicassistant.Track) (catalogChoice, error) {
     c := selectionClaim{
         Room: roomID, Owner: sessionFingerprint(guestToken),
@@ -56,34 +67,31 @@ func (s *server) signCatalogChoice(roomID, guestToken string, item musicassistan
     if !validCatalogClaim(c) { return catalogChoice{}, errInvalidSelection }
     payload, err := json.Marshal(c)
     if err != nil { return catalogChoice{}, errInvalidSelection }
-    encoded := base64.RawURLEncoding.EncodeToString(payload)
-    mac := hmac.New(sha256.New, s.selectionKey)
-    _, _ = mac.Write([]byte(encoded))
-    id := encoded + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-    if len(id) > 4096 { return catalogChoice{}, errInvalidSelection }
-    return catalogChoice{SelectionID:id, Name:c.Name, Artist:c.Artist, Provider:c.Provider}, nil
+    aead,err:=s.selectionAEAD()
+    if err!=nil{return catalogChoice{},err}
+    nonce:=make([]byte,aead.NonceSize())
+    if _,err:=rand.Read(nonce);err!=nil{return catalogChoice{},errInvalidSelection}
+    ciphertext:=aead.Seal(nil,nonce,payload,nil)
+    token:=base64.RawURLEncoding.EncodeToString(append(nonce,ciphertext...))
+    if len(token)>4096{return catalogChoice{},errInvalidSelection}
+    return catalogChoice{SelectionID:token,Name:c.Name,Artist:c.Artist,Provider:c.Provider},nil
 }
 
 func (s *server) verifyCatalogChoice(id, roomID, guestToken string) (selectionClaim, error) {
     var empty selectionClaim
-    if len(id) == 0 || len(id) > 4096 { return empty, errInvalidSelection }
-    parts := strings.Split(id, ".")
-    if len(parts) != 2 { return empty, errInvalidSelection }
-    supplied, err := base64.RawURLEncoding.DecodeString(parts[1])
-    if err != nil || len(supplied) != sha256.Size { return empty, errInvalidSelection }
-    mac := hmac.New(sha256.New, s.selectionKey)
-    _, _ = mac.Write([]byte(parts[0]))
-    if !hmac.Equal(supplied, mac.Sum(nil)) { return empty, errInvalidSelection }
-    payload, err := base64.RawURLEncoding.DecodeString(parts[0])
-    if err != nil || len(payload) > 3072 { return empty, errInvalidSelection }
+    if len(id)==0||len(id)>4096{return empty,errInvalidSelection}
+    raw,err:=base64.RawURLEncoding.DecodeString(id)
+    if err!=nil{return empty,errInvalidSelection}
+    aead,err:=s.selectionAEAD()
+    if err!=nil{return empty,err}
+    if len(raw)<aead.NonceSize()+aead.Overhead(){return empty,errInvalidSelection}
+    nonce,ciphertext:=raw[:aead.NonceSize()],raw[aead.NonceSize():]
+    payload,err:=aead.Open(nil,nonce,ciphertext,nil)
+    if err!=nil||len(payload)>3072{return empty,errInvalidSelection}
     var claim selectionClaim
-    if err := json.Unmarshal(payload, &claim); err != nil || !validCatalogClaim(claim) {
-        return empty, errInvalidSelection
-    }
-    expected := sessionFingerprint(guestToken)
-    if claim.Room != roomID || !hmac.Equal([]byte(claim.Owner), []byte(expected)) ||
-        s.now().Unix() >= claim.Expires {
-        return empty, errInvalidSelection
-    }
-    return claim, nil
+    if err:=json.Unmarshal(payload,&claim);err!=nil||!validCatalogClaim(claim){return empty,errInvalidSelection}
+    expected:=sessionFingerprint(guestToken)
+    if claim.Room!=roomID||subtle.ConstantTimeCompare([]byte(claim.Owner),[]byte(expected))!=1||
+        s.now().Unix()>=claim.Expires{return empty,errInvalidSelection}
+    return claim,nil
 }

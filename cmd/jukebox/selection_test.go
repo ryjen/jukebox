@@ -1,7 +1,10 @@
 package main
 
 import (
-    "encoding/json"
+    "bytes"
+	"encoding/base64"
+	"encoding/json"
+	"time"
     "fmt"
     "net/http"
     "net/http/httptest"
@@ -18,12 +21,16 @@ func TestSignedCatalogChoiceBindsRoomSessionAndExpiry(t *testing.T) {
     track := musicassistant.Track{URI:"filesystem://track/123",Name:"Dreams",Artist:"Fleetwood Mac",Provider:"filesystem"}
     choice, err := s.signCatalogChoice("living", token, track)
     if err != nil || choice.SelectionID == "" { t.Fatalf("issue selection: %v",err) }
+    raw,err:=base64.RawURLEncoding.DecodeString(choice.SelectionID)
+    if err!=nil || bytes.Contains(raw,[]byte(track.URI)) {
+        t.Fatal("canonical URI exposed in purportedly opaque selection token")
+    }
     if _,err:=s.verifyCatalogChoice(choice.SelectionID,"living",token);err!=nil {t.Fatal(err)}
     if _,err:=s.verifyCatalogChoice(choice.SelectionID,"office",other);err==nil {t.Fatal("cross-room selection accepted")}
     if _,err:=s.verifyCatalogChoice(choice.SelectionID,"living",other);err==nil {t.Fatal("foreign session accepted")}
     forged:=choice.SelectionID[:len(choice.SelectionID)-1]+"!"
     if _,err:=s.verifyCatalogChoice(forged,"living",token);err==nil {t.Fatal("modified signature accepted")}
-    *clock=clock.Add(11*60*1000000000)
+    *clock=clock.Add(11*time.Minute)
     if _,err:=s.verifyCatalogChoice(choice.SelectionID,"living",token);err==nil {t.Fatal("expired selection accepted")}
 }
 
