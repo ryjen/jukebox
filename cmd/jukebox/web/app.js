@@ -1,6 +1,7 @@
 'use strict';
 const el = (id) => document.getElementById(id);
 let currentRoom = null;
+let searchGeneration = 0;
 let bearer = sessionStorage.getItem('jukebox-session');
 const say = (message) => { el('message').textContent = message; };
 const request = async (path, options = {}) => {
@@ -11,6 +12,7 @@ const request = async (path, options = {}) => {
   return body;
 };
 const reset = () => {
+  searchGeneration++;
   sessionStorage.removeItem('jukebox-session');
   sessionStorage.removeItem('jukebox-room');
   bearer = null;
@@ -54,6 +56,7 @@ async function refresh() {
   }
 }
 const joined = async (room) => {
+  searchGeneration++;
   currentRoom = room;
   el('live-queue').replaceChildren();
   el('catalog-results').replaceChildren();
@@ -91,11 +94,12 @@ el('catalog-search-form').addEventListener('submit', async (event) => {
   const output = el('catalog-results');
   const room = currentRoom;
   const session = bearer;
+  const generation = ++searchGeneration;
   output.textContent = 'Searching configured music providers…';
   try {
     const q = el('catalog-query').value.trim();
     const { tracks } = await request(`/api/rooms/${encodeURIComponent(room)}/search?q=${encodeURIComponent(q)}`);
-    if (room !== currentRoom || session !== bearer) return;
+    if (generation !== searchGeneration || room !== currentRoom || session !== bearer) return;
     output.replaceChildren();
     for (const track of tracks) {
       const button = document.createElement('button');
@@ -103,6 +107,7 @@ el('catalog-search-form').addEventListener('submit', async (event) => {
       button.className = 'secondary';
       button.textContent = `${track.name} — ${track.artist || 'Unknown artist'} (${track.provider || 'library'}) · Use as request`;
       button.addEventListener('click', () => {
+        if (generation !== searchGeneration || room !== currentRoom || session !== bearer) return;
         el('title').value = track.name;
         el('artist').value = track.artist || '';
         say('Search result copied to local request form. No music has been queued.');
@@ -112,7 +117,7 @@ el('catalog-search-form').addEventListener('submit', async (event) => {
     }
     if (!tracks.length) output.textContent = 'No matching tracks.';
   } catch (error) {
-    if (room === currentRoom && session === bearer) output.textContent = `Search unavailable: ${error.message}`;
+    if (generation === searchGeneration && room === currentRoom && session === bearer) output.textContent = `Search unavailable: ${error.message}`;
   }
 });
 el('read-queue').addEventListener('click', async () => {
