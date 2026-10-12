@@ -54,6 +54,22 @@ go test -race ./...
 go vet ./...
 ```
 
+## Optional read-only Music Assistant 2.10.6 integration
+
+This experimental preview makes **no playback changes**. It reads the configured room player's active queue, and rejects unapproved group queues until room/group ownership is implemented. Guest access is still room-bound.
+
+```sh
+# Configure a token with QUEUES_READ and PLAYERS_READ in Music Assistant.
+# Never expose it to browsers or commit it to source.
+export JUKEBOX_MA_URL=http://127.0.0.1:8095
+export JUKEBOX_MA_TOKEN="your-read-only-token"
+go run ./cmd/jukebox
+```
+
+The token requires `QUEUES_READ` and `PLAYERS_READ`, since detecting native synchronized group coordinators requires the player's actual membership, not just its queue ID. The server uses the pinned Music Assistant 2.10.6 `POST /api` HTTP command transport for `player_queues/get_active_queue` and `player_queues/items`, with a maximum of 25 queue items. In the web room view, select **Refresh playback**. A client may also call `GET /api/rooms/<room-id>/queue` using its room bearer. Without both configuration values this route returns 503; invalid upstream responses return 502, and unexpected group queues return 409. Requests submitted to the request board are **never** transmitted to Music Assistant.
+
+The URL requires HTTPS unless the target is a literal loopback IP. Configure Jukebox and Music Assistant on a private network, and ensure their server-side credentials are restricted. There are no authenticated live Music Assistant tests yet; the protocol is validated using in-process fixtures.
+
 ## Trust and operational limitations
 
 The host bearer is only read server-side; guest invite exchange is single-use and sessions are scoped to exactly one room. Room requests are bounded in memory and guest requests are **not** verified against music providers. Restart loses invites, sessions and requests. There is no persisted audit trail, token hashing, distributed limiting or production-grade reverse-proxy deployment.

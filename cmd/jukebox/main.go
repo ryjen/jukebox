@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ryjen/jukebox/internal/musicassistant"
 )
 
 //go:embed web/*
@@ -61,6 +63,7 @@ type server struct {
 	sessions   map[string]*session
 	requests   map[string][]request
 	adminToken string
+	ma         *musicassistant.Client
 	now        func() time.Time
 }
 
@@ -281,6 +284,36 @@ func (s *server) handler() http.Handler {
 		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// The Music Assistant token stays server-side. Room scopes select a trusted,
+	// configured player; a group queue is intentionally denied until group
+	// membership and authorization are implemented.
+	mux.HandleFunc("GET /api/rooms/{room}/queue", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("room")
+		if !s.auth(r, id) {
+			fail(w, 403, "room access denied")
+			return
+		}
+		if s.ma == nil {
+			fail(w, 503, "music assistant not configured")
+			return
+		}
+		player := s.rooms[id]
+		snapshot, err := s.ma.ReadQueue(r.Context(), player.PlayerID)
+		if err != nil {
+			if errors.Is(err, musicassistant.ErrGrouped) {
+				fail(w, 409, "group queue not authorized")
+			} else {
+				fail(w, 502, "music assistant unavailable")
+			}
+			return
+		}
+		// A session revoked during a slow upstream response must not disclose it.
+		if !s.auth(r, id) {
+			fail(w, 403, "room access denied")
+			return
+		}
+		send(w, 200, snapshot)
+	})
 	mux.HandleFunc("GET /api/rooms/{room}/requests", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("room")
 		if !s.auth(r, id) {
@@ -364,6 +397,15 @@ func main() {
 	s, err := newServer(cfg, os.Getenv("JUKEBOX_ADMIN_TOKEN"), time.Now)
 	if err != nil {
 		log.Fatal(err)
+	}
+	// Read-only Music Assistant connection is explicitly opt-in. Reject
+	// incomplete configuration instead of running with ambiguous authority.
+	maURL, maToken := os.Getenv("JUKEBOX_MA_URL"), os.Getenv("JUKEBOX_MA_TOKEN")
+	if maURL != "" || maToken != "" {
+		s.ma, err = musicassistant.New(maURL, maToken)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 	addr := os.Getenv("JUKEBOX_LISTEN_ADDR")
 	if addr == "" {
