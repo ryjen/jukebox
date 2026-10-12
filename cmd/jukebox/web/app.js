@@ -1,6 +1,7 @@
 'use strict';
 const el = (id) => document.getElementById(id);
 let currentRoom = null;
+let searchGeneration = 0;
 let bearer = sessionStorage.getItem('jukebox-session');
 const say = (message) => { el('message').textContent = message; };
 const request = async (path, options = {}) => {
@@ -11,11 +12,13 @@ const request = async (path, options = {}) => {
   return body;
 };
 const reset = () => {
+  searchGeneration++;
   sessionStorage.removeItem('jukebox-session');
   sessionStorage.removeItem('jukebox-room');
   bearer = null;
   currentRoom = null;
   el('live-queue').replaceChildren();
+  el('catalog-results').replaceChildren();
   el('board').classList.add('hidden');
   el('join-panel').classList.remove('hidden');
 };
@@ -53,8 +56,10 @@ async function refresh() {
   }
 }
 const joined = async (room) => {
+  searchGeneration++;
   currentRoom = room;
   el('live-queue').replaceChildren();
+  el('catalog-results').replaceChildren();
   sessionStorage.setItem('jukebox-room', room);
   el('board-heading').textContent = `Requests · ${room}`;
   el('join-panel').classList.add('hidden');
@@ -83,12 +88,47 @@ el('request-form').addEventListener('submit', async (event) => {
     await refresh();
   } catch (error) { say(error.message); }
 });
+el('catalog-search-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!currentRoom || !bearer) return;
+  const output = el('catalog-results');
+  const room = currentRoom;
+  const session = bearer;
+  const generation = ++searchGeneration;
+  output.textContent = 'Searching configured music providers…';
+  try {
+    const q = el('catalog-query').value.trim();
+    const { tracks } = await request(`/api/rooms/${encodeURIComponent(room)}/search?q=${encodeURIComponent(q)}`);
+    if (generation !== searchGeneration || room !== currentRoom || session !== bearer) return;
+    output.replaceChildren();
+    for (const track of tracks) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.textContent = `${track.name} — ${track.artist || 'Unknown artist'} (${track.provider || 'library'}) · Use as request`;
+      button.addEventListener('click', () => {
+        if (generation !== searchGeneration || room !== currentRoom || session !== bearer) return;
+        el('title').value = track.name;
+        el('artist').value = track.artist || '';
+        say('Search result copied to local request form. No music has been queued.');
+        el('title').focus();
+      });
+      output.appendChild(button);
+    }
+    if (!tracks.length) output.textContent = 'No matching tracks.';
+  } catch (error) {
+    if (generation === searchGeneration && room === currentRoom && session === bearer) output.textContent = `Search unavailable: ${error.message}`;
+  }
+});
 el('read-queue').addEventListener('click', async () => {
   if (!currentRoom || !bearer) return;
   const output = el('live-queue');
+  const room = currentRoom;
+  const session = bearer;
   output.textContent = 'Contacting the configured room player…';
   try {
-    const snapshot = await request(`/api/rooms/${encodeURIComponent(currentRoom)}/queue`);
+    const snapshot = await request(`/api/rooms/${encodeURIComponent(room)}/queue`);
+    if (room !== currentRoom || session !== bearer) return;
     const label = document.createElement('p');
     label.textContent = `Player: ${snapshot.queueId} · ${snapshot.state}`;
     const list = document.createElement('ol');
@@ -99,7 +139,7 @@ el('read-queue').addEventListener('click', async () => {
     }
     output.replaceChildren(label, list);
   } catch (error) {
-    output.textContent = `Playback preview unavailable: ${error.message}`;
+    if (room === currentRoom && session === bearer) output.textContent = `Playback preview unavailable: ${error.message}`;
   }
 });
 el('leave').addEventListener('click', () => { reset(); say('Local session cleared. Ask your host to revoke it on the server if needed.'); });
