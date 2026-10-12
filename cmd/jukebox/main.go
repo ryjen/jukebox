@@ -428,6 +428,7 @@ func (s *server) handler() http.Handler {
 		mux.ServeHTTP(w, r)
 	})
 }
+
 // Jukebox serves bearer credentials. Never expose its HTTP listener directly
 // on a LAN: a reviewed, authenticated HTTPS ingress can reverse proxy to loopback.
 func validatedListenAddress(configured, legacyRemote string) (string, error) {

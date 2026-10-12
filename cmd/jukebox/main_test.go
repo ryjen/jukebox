@@ -266,11 +266,10 @@ func TestDefaultListenPortDoesNotConflictWithMusicAssistant(t *testing.T) {
 	}
 }
 
-
 func TestOnlyLoopbackListenerIsAllowed(t *testing.T) {
 	cases := []struct {
-		addr string
-		legacy string
+		addr    string
+		legacy  string
 		allowed bool
 	}{
 		{"", "", true},
