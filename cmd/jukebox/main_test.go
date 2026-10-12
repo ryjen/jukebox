@@ -91,7 +91,12 @@ func TestInvitesExpireOneTimeAndRevoke(t *testing.T) {
 	code := getJSON(t, inv, "inviteCode")
 	tok := join(t, s, "living")
 	list := call(s, "GET", "/api/admin/sessions", nil, strings.Repeat("a", 32))
-	var listing struct { Sessions []struct { ID string `json:"id"`; RoomID string `json:"roomId"` } `json:"sessions"` }
+	var listing struct {
+		Sessions []struct {
+			ID     string `json:"id"`
+			RoomID string `json:"roomId"`
+		} `json:"sessions"`
+	}
 	if err := json.Unmarshal(list.Body.Bytes(), &listing); err != nil || len(listing.Sessions) != 1 || listing.Sessions[0].RoomID != "living" {
 		t.Fatalf("invalid admin session listing: %s / %v", list.Body.String(), err)
 	}
@@ -203,8 +208,8 @@ func TestHostCanRevokeByNonSecretSessionID(t *testing.T) {
 	rec := call(s, "GET", "/api/admin/sessions", nil, admin)
 	var found struct {
 		Sessions []struct {
-			ID string `json:"id"`
-			RoomID string `json:"roomId"`
+			ID      string    `json:"id"`
+			RoomID  string    `json:"roomId"`
 			Expires time.Time `json:"expiresAt"`
 		} `json:"sessions"`
 	}
@@ -215,15 +220,31 @@ func TestHostCanRevokeByNonSecretSessionID(t *testing.T) {
 		t.Fatal("guest token disclosed by admin listing")
 	}
 	var id string
-	for _, sess := range found.Sessions { if sess.RoomID == "living" { id = sess.ID } }
-	if len(id) != 64 { t.Fatalf("invalid stable revocation identifier: %q", id) }
-	if got := call(s, "POST", "/api/admin/revoke", map[string]string{"sessionId": id}, admin).Code; got != 204 { t.Fatalf("revoke: %d", got) }
-	if got := call(s, "GET", "/api/rooms/living/requests", nil, living).Code; got != 403 { t.Fatalf("revoked user still authorized: %d", got) }
-	if got := call(s, "GET", "/api/rooms/office/requests", nil, office).Code; got != 200 { t.Fatalf("unrelated room was revoked: %d", got) }
-	if got := call(s, "POST", "/api/admin/revoke", map[string]string{"sessionId": id}, admin).Code; got != 204 { t.Fatalf("revoke retry: %d", got) }
+	for _, sess := range found.Sessions {
+		if sess.RoomID == "living" {
+			id = sess.ID
+		}
+	}
+	if len(id) != 64 {
+		t.Fatalf("invalid stable revocation identifier: %q", id)
+	}
+	if got := call(s, "POST", "/api/admin/revoke", map[string]string{"sessionId": id}, admin).Code; got != 204 {
+		t.Fatalf("revoke: %d", got)
+	}
+	if got := call(s, "GET", "/api/rooms/living/requests", nil, living).Code; got != 403 {
+		t.Fatalf("revoked user still authorized: %d", got)
+	}
+	if got := call(s, "GET", "/api/rooms/office/requests", nil, office).Code; got != 200 {
+		t.Fatalf("unrelated room was revoked: %d", got)
+	}
+	if got := call(s, "POST", "/api/admin/revoke", map[string]string{"sessionId": id}, admin).Code; got != 204 {
+		t.Fatalf("revoke retry: %d", got)
+	}
 	*now = now.Add(9 * time.Hour)
 	rec = call(s, "GET", "/api/admin/sessions", nil, admin)
-	if !strings.Contains(rec.Body.String(), `"sessions":[]`) { t.Fatalf("expired sessions listed: %s", rec.Body.String()) }
+	if !strings.Contains(rec.Body.String(), `"sessions":[]`) {
+		t.Fatalf("expired sessions listed: %s", rec.Body.String())
+	}
 }
 
 func TestUnicodeMetadataUsesCodepointsNotUTF8Bytes(t *testing.T) {
