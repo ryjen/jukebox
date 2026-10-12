@@ -57,7 +57,7 @@ func TestReadOnlyProbeReportsCountsNotMusicOrSecrets(t *testing.T) {
 	config := environment(map[string]string{"JUKEBOX_MA_URL": server.URL, "JUKEBOX_MA_TOKEN": "sample-secret", "JUKEBOX_MA_PLAYER_ID": "living-player", "JUKEBOX_MA_SEARCH_QUERY": "demo song"})
 	var output bytes.Buffer
 	code := run(context.Background(), &output, config)
-	if code != 0 || calls.Load() != 4 {
+	if code != 0 || calls.Load() != 5 {
 		t.Fatalf("code=%d calls=%d report=%s", code, calls.Load(), output.String())
 	}
 	var report result
