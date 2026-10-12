@@ -17,6 +17,9 @@
 | `party/player` | Selects a configured/automatic *single* queue | Must not use as an arbitrary room selector. |
 | `party/add_to_queue(uri, boost)` | Requires `Scope.QUEUES_CONTROL`; no `roomId` or `queueId` parameter | Cannot safely expose directly as cross-room guest command. |
 | `party/add_to_queue` on an idle queue | Calls queue `load` followed by `play_index` | Guest requests may unexpectedly start audio. Require explicit host autoplay policy. |
+| `player_queues/get_active_queue(player_id)` | `Scope.QUEUES_READ` | Resolve active queue; queue identity alone does not prove lack of synchronization. |
+| `players/get(player_id)` | `Scope.PLAYERS_READ` | Check native coordinator members, synced child and group state; deny group reads until authorized. |
+| `music/search` | `Scope.LIBRARY_READ` | Federated read-only library and supported provider search (source entitlements still apply). |
 | `player_queues/get(queue_id)` | `Scope.QUEUES_READ` | Candidate server-side read-only probe. |
 | `player_queues/items(queue_id, limit, offset)` | `Scope.QUEUES_READ` | Candidate room queue read. |
 | `player_queues/play_media(queue_id, media, option,...)` | `Scope.QUEUES_CONTROL`; handles playable-source selection, not just queue items | Dangerous as a generic guest write. Do not use before option/side-effect contract tests. |
@@ -36,14 +39,14 @@ A guest may supply a requested track identity, but the adapter must look up a ca
 
 At commit `c24866405bd2068c25a60e1014e5ef8c3f6445bb`, `music_assistant/controllers/webserver/controller.py` registers `POST /api` and handles commands of the form `{"message_id":"...","command":"player_queues/items","args":{"queue_id":"..."}}`. Unlike WebSocket responses, its successful HTTP response contains the **result object/array directly**. Authentication uses `Authorization: Bearer <token>`; missing rights are rejected with HTTP 403. The Music Assistant [official API reference](https://www.music-assistant.io/api/) documents this transport.
 
-The read-only candidate [#9](https://github.com/ryjen/jukebox/issues/9) / [PR #10](https://github.com/ryjen/jukebox/pull/10) restricts commands to `player_queues/get_active_queue` and `player_queues/items`, keeps the credential server-side, and rejects active queue identities that do not match the configured independent room player. No music-source or queue-control permission should be required for this slice.
+The read-only candidate [#9](https://github.com/ryjen/jukebox/issues/9) / [PR #10](https://github.com/ryjen/jukebox/pull/10) restricts commands to `players/get`, `player_queues/get_active_queue` and `player_queues/items`, keeps the credential server-side, rejects native coordinator group membership, and bounds queue reads from the current playhead. The separate catalogue search slice [#11](https://github.com/ryjen/jukebox/issues/11) uses `music/search`; no queue or player **control** permission should be required for either slice.
 
-**Limit of evidence:** pinned upstream source and mocked HTTP contracts are not real running Music Assistant authentication/integration evidence. A token with only `QUEUES_READ` and a live Music Assistant 2.10.6 server are still needed before deployment. Group ownership and cross-room visibility require separate design (#5).
+**Limit of evidence:** pinned upstream source and mocked HTTP contracts are not real running Music Assistant authentication/integration evidence. A least-privileged service token with `PLAYERS_READ` and `QUEUES_READ` (plus `LIBRARY_READ` for catalogue search) and a live Music Assistant 2.10.6 server are still needed before deployment. Group ownership and cross-room visibility require separate design (#5).
 
 ## Required executable evidence for #3
 
 1. Run a local test Music Assistant **2.10.6** instance (or identical pinned commit); record image digest and the actual provider/frontend versions.
-2. Establish an authenticated read-only test against `player_queues/get` and `player_queues/items`; verify queue identifiers and permission denial. No guest token gains `QUEUES_CONTROL`.
+2. Establish an authenticated read-only test against `players/get`, `player_queues/get_active_queue`, and `player_queues/items`; verify group membership, playhead offsets, queue identifiers and permission denial. No guest token gains `QUEUES_CONTROL`.
 3. Verify local and cloud library search with at least one supported provider each; record media mapping and entitlement failures.
 4. In an isolated test queue, exercise queued-vs-autoplay semantics, duplicate suppression, loss of connection, invalid media URI, guest revocation, and simultaneous requests. Restore source queue state afterward.
 5. Compare the upstream multi-instance contribution versus the companion adapter, document the outcome in an ADR, and add fail-closed contract tests before starting [#4](https://github.com/ryjen/jukebox/issues/4).
