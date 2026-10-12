@@ -19,6 +19,7 @@ The Party plugin is in [`music-assistant/server/music_assistant/providers/party`
 
 - Room identifiers are stable logical authorization scopes; players are physical playback targets.
 - Music Assistant remains the **only playback/queue authority**. A request must not claim queued status until confirmed by the current target player's queue.
+- Search results produce signed, ten-minute room/session-bound catalogue choices. A selected request retains its upstream provider URI **server-side**; a free-text suggestion has no canonical identity and cannot be promoted to a playback command.
 - Media identities are Music Assistant provider mappings, not guest-entered strings.
 - During grouping, a room's independent queue is suspended transactionally or preserved as a snapshot; no silent merge or autoplay after detach.
 - A sync group has an explicit queue owner; reject conflicting updates, stale snapshots, incompatible players, and ambiguous partial group operations.

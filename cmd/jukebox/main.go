@@ -58,6 +58,8 @@ type request struct {
 	Title       string    `json:"title"`
 	Artist      string    `json:"artist"`
 	Source      string    `json:"source"`
+	Provider    string    `json:"provider,omitempty"`
+	MediaURI    string    `json:"-"` // Retained server-side for future verified queue write.
 	RequestedAt time.Time `json:"requestedAt"`
 }
 type server struct {
@@ -67,6 +69,7 @@ type server struct {
 	sessions   map[string]*session
 	requests   map[string][]request
 	adminToken string
+	selectionKey []byte
 	ma         *musicassistant.Client
 	now        func() time.Time
 }
@@ -78,7 +81,11 @@ func newServer(cfg config, adminToken string, now func() time.Time) (*server, er
 	if len(cfg.Rooms) == 0 {
 		return nil, errors.New("at least one room is required")
 	}
-	s := &server{rooms: map[string]room{}, invites: map[string]invite{}, sessions: map[string]*session{}, requests: map[string][]request{}, adminToken: adminToken, now: now}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, errors.New("catalogue selection signer unavailable")
+	}
+	s := &server{rooms: map[string]room{}, invites: map[string]invite{}, sessions: map[string]*session{}, requests: map[string][]request{}, adminToken: adminToken, selectionKey: key, now: now}
 	players := map[string]bool{}
 	for _, r := range cfg.Rooms {
 		if !validID(r.ID) || strings.TrimSpace(r.Name) == "" || strings.TrimSpace(r.PlayerID) == "" {
@@ -359,7 +366,16 @@ func (s *server) handler() http.Handler {
 			fail(w, 403, "room access denied")
 			return
 		}
-		send(w, 200, map[string]any{"tracks": tracks})
+		// Never trust a browser-supplied URI as queue authority. Issue signed
+		// session/room-bound selections from upstream search results instead.
+		choices := make([]catalogChoice, 0, len(tracks))
+		for _, track := range tracks {
+			choice, err := s.signCatalogChoice(id, token, track)
+			if err == nil {
+				choices = append(choices, choice)
+			}
+		}
+		send(w, 200, map[string]any{"tracks": choices})
 	})
 	mux.HandleFunc("GET /api/rooms/{room}/requests", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("room")
@@ -383,6 +399,7 @@ func (s *server) handler() http.Handler {
 			Title  string `json:"title"`
 			Artist string `json:"artist"`
 			Source string `json:"source"`
+			SelectionID string `json:"selectionId"`
 		}
 		if err := decode(r, &body); err != nil {
 			fail(w, 400, "invalid request")
@@ -390,7 +407,19 @@ func (s *server) handler() http.Handler {
 		}
 		body.Title = strings.TrimSpace(body.Title)
 		body.Artist = strings.TrimSpace(body.Artist)
-		if body.Title == "" || utf8.RuneCountInString(body.Title) > 120 || utf8.RuneCountInString(body.Artist) > 120 || (body.Source != "local" && body.Source != "cloud") {
+		var selected selectionClaim
+		if body.SelectionID != "" {
+			if body.Title != "" || body.Artist != "" || body.Source != "" {
+				fail(w, 400, "catalogue selection cannot override metadata")
+				return
+			}
+			var err error
+			selected, err = s.verifyCatalogChoice(body.SelectionID, id, token)
+			if err != nil {
+				fail(w, 400, "invalid or expired catalogue selection")
+				return
+			}
+		} else if body.Title == "" || utf8.RuneCountInString(body.Title) > 120 || utf8.RuneCountInString(body.Artist) > 120 || (body.Source != "local" && body.Source != "cloud") {
 			fail(w, 400, "invalid track metadata")
 			return
 		}
@@ -412,7 +441,11 @@ func (s *server) handler() http.Handler {
 			fail(w, 503, "randomness unavailable")
 			return
 		}
-		item := request{key, body.Title, body.Artist, body.Source, s.now()}
+		item := request{ID: key, Title: body.Title, Artist: body.Artist, Source: body.Source, RequestedAt: s.now()}
+		if body.SelectionID != "" {
+			item.Title, item.Artist, item.Source = selected.Name, selected.Artist, "catalog"
+			item.MediaURI, item.Provider = selected.URI, selected.Provider
+		}
 		s.requests[id] = append(s.requests[id], item)
 		sess.Count++
 		s.mu.Unlock()

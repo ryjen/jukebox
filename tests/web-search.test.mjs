@@ -34,6 +34,7 @@ function fixture() {
     return nodes.get(name);
   };
   const searches = [];
+  const submitted = [];
   const context = {
     document: {
       getElementById: get,
@@ -44,9 +45,12 @@ function fixture() {
       setItem: (key, val) => storage.set(key, val),
       removeItem: (key) => storage.delete(key),
     },
-    fetch: async (path) => {
+    fetch: async (path, options = {}) => {
       if (path === '/api/rooms') return { ok: true, json: async () => ({ rooms: [] }) };
-      if (path.includes('/requests')) return { ok: true, json: async () => ({ requests: [] }) };
+      if (path.includes('/requests')) {
+        if (options.method === 'POST') submitted.push(JSON.parse(options.body));
+        return { ok: true, json: async () => ({ requests: [] }) };
+      }
       if (!path.includes('/search?')) throw new Error('unexpected path ' + path);
       const pending = deferred();
       searches.push({ path, ...pending });
@@ -55,7 +59,7 @@ function fixture() {
     console,
   };
   runInNewContext(source, context);
-  return { get, searches };
+  return { get, searches, submitted };
 }
 
 async function spin() {
@@ -84,4 +88,34 @@ test('the latest same-room search response wins even if older search finishes la
   assert.equal(get('catalog-results').children.length, 1);
   assert.match(get('catalog-results').children[0].textContent, /second track/);
   assert.doesNotMatch(get('catalog-results').children[0].textContent, /stale/);
+});
+
+test('catalogue selection is submitted as an opaque ID, not mutable metadata', async () => {
+  const { get, searches, submitted } = fixture();
+  await spin();
+  const onSearch = get('catalog-search-form').handlers.get('submit');
+  const onRequest = get('request-form').handlers.get('submit');
+  get('catalog-query').value = 'dreams';
+  const pending = onSearch({ preventDefault() {} });
+  searches[0].resolve({ ok: true, json: async () => ({
+    tracks: [{ selectionId: 'signed-choice', name: 'Dreams', artist: 'Fleetwood Mac', provider: 'filesystem' }],
+  }) });
+  await pending;
+  const choose = get('catalog-results').children[0].handlers.get('click');
+  choose();
+  await onRequest({ preventDefault() {} });
+  assert.deepEqual(submitted[0], { selectionId: 'signed-choice' });
+
+  get('catalog-query').value = 'second';
+  const more = onSearch({ preventDefault() {} });
+  searches[1].resolve({ ok: true, json: async () => ({
+    tracks: [{ selectionId: 'other-choice', name: 'Second', artist: 'Artist', provider: 'qobuz' }],
+  }) });
+  await more;
+  get('catalog-results').children[0].handlers.get('click')();
+  get('title').value = 'User edited title';
+  get('title').handlers.get('input')();
+  get('source').value = 'local';
+  await onRequest({ preventDefault() {} });
+  assert.deepEqual(submitted[1], { title: 'User edited title', artist: 'Artist', source: 'local' });
 });
