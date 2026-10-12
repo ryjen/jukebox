@@ -2,6 +2,7 @@
 const el = (id) => document.getElementById(id);
 let currentRoom = null;
 let searchGeneration = 0;
+let selectedCatalogId = null;
 let bearer = sessionStorage.getItem('jukebox-session');
 const say = (message) => { el('message').textContent = message; };
 const request = async (path, options = {}) => {
@@ -13,6 +14,7 @@ const request = async (path, options = {}) => {
 };
 const reset = () => {
   searchGeneration++;
+  selectedCatalogId = null;
   sessionStorage.removeItem('jukebox-session');
   sessionStorage.removeItem('jukebox-room');
   bearer = null;
@@ -57,6 +59,7 @@ async function refresh() {
 }
 const joined = async (room) => {
   searchGeneration++;
+  selectedCatalogId = null;
   currentRoom = room;
   el('live-queue').replaceChildren();
   el('catalog-results').replaceChildren();
@@ -80,8 +83,11 @@ el('join-form').addEventListener('submit', async (event) => {
 el('request-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    const values = { title: el('title').value, artist: el('artist').value, source: el('source').value };
+    const values = selectedCatalogId
+      ? { selectionId: selectedCatalogId }
+      : { title: el('title').value, artist: el('artist').value, source: el('source').value };
     await request(`/api/rooms/${encodeURIComponent(currentRoom)}/requests`, { method: 'POST', body: JSON.stringify(values) });
+    selectedCatalogId = null;
     el('title').value = '';
     el('artist').value = '';
     say('Request recorded locally. No music was queued.');
@@ -108,9 +114,11 @@ el('catalog-search-form').addEventListener('submit', async (event) => {
       button.textContent = `${track.name} — ${track.artist || 'Unknown artist'} (${track.provider || 'library'}) · Use as request`;
       button.addEventListener('click', () => {
         if (generation !== searchGeneration || room !== currentRoom || session !== bearer) return;
+        if (!track.selectionId) return;
         el('title').value = track.name;
         el('artist').value = track.artist || '';
-        say('Search result copied to local request form. No music has been queued.');
+        selectedCatalogId = track.selectionId;
+        say('Verified catalogue search result selected for a local request. No music has been queued.');
         el('title').focus();
       });
       output.appendChild(button);
@@ -142,6 +150,12 @@ el('read-queue').addEventListener('click', async () => {
     if (room === currentRoom && session === bearer) output.textContent = `Playback preview unavailable: ${error.message}`;
   }
 });
+// Editing the displayed metadata converts the choice back to a manual
+// suggestion; stale selections are never silently applied to changed titles.
+for (const id of ['title', 'artist', 'source']) {
+  el(id).addEventListener('input', () => { selectedCatalogId = null; });
+  el(id).addEventListener('change', () => { selectedCatalogId = null; });
+}
 el('leave').addEventListener('click', () => { reset(); say('Local session cleared. Ask your host to revoke it on the server if needed.'); });
 (async () => {
   try {
