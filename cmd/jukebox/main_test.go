@@ -265,3 +265,28 @@ func TestDefaultListenPortDoesNotConflictWithMusicAssistant(t *testing.T) {
 		t.Fatalf("jukebox default conflicts with Music Assistant or binds publicly: %s", defaultListenAddr)
 	}
 }
+
+func TestOnlyLoopbackListenerIsAllowed(t *testing.T) {
+	cases := []struct {
+		addr    string
+		legacy  string
+		allowed bool
+	}{
+		{"", "", true},
+		{"127.0.0.1:8108", "", true},
+		{"[::1]:8108", "", true},
+		{"0.0.0.0:8108", "", false},
+		{"192.168.1.2:8108", "", false},
+		{"localhost:8108", "", false},
+		{"music.example:8108", "", false},
+		{"127.0.0.1", "", false},
+		{"127.0.0.1:8108", "1", false},
+		{"0.0.0.0:8108", "1", false},
+	}
+	for _, tc := range cases {
+		_, err := validatedListenAddress(tc.addr, tc.legacy)
+		if (err == nil) != tc.allowed {
+			t.Errorf("addr=%q legacy=%q expected allowed=%v got err=%v", tc.addr, tc.legacy, tc.allowed, err)
+		}
+	}
+}

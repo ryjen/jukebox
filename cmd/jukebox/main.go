@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"sort"
@@ -427,6 +428,27 @@ func (s *server) handler() http.Handler {
 		mux.ServeHTTP(w, r)
 	})
 }
+
+// Jukebox serves bearer credentials. Never expose its HTTP listener directly
+// on a LAN: a reviewed, authenticated HTTPS ingress can reverse proxy to loopback.
+func validatedListenAddress(configured, legacyRemote string) (string, error) {
+	if legacyRemote != "" {
+		return "", errors.New("JUKEBOX_ALLOW_REMOTE is unsupported; bind to loopback behind a reviewed HTTPS ingress")
+	}
+	if configured == "" {
+		configured = defaultListenAddr
+	}
+	host, port, err := net.SplitHostPort(configured)
+	if err != nil || port == "" {
+		return "", errors.New("JUKEBOX_LISTEN_ADDR must specify a loopback IP and port")
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return "", errors.New("JUKEBOX_LISTEN_ADDR must use a numeric loopback address (127.0.0.1 or ::1)")
+	}
+	return configured, nil
+}
+
 func main() {
 	path := os.Getenv("JUKEBOX_CONFIG")
 	if path == "" {
@@ -453,12 +475,9 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	addr := os.Getenv("JUKEBOX_LISTEN_ADDR")
-	if addr == "" {
-		addr = defaultListenAddr
-	}
-	if !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "localhost:") && os.Getenv("JUKEBOX_ALLOW_REMOTE") != "1" {
-		log.Fatal("non-loopback bind requires JUKEBOX_ALLOW_REMOTE=1 and an authenticated TLS ingress")
+	addr, err := validatedListenAddress(os.Getenv("JUKEBOX_LISTEN_ADDR"), os.Getenv("JUKEBOX_ALLOW_REMOTE"))
+	if err != nil {
+		log.Fatal(err)
 	}
 	log.Printf("experimental request board on %s (NO MUSIC PLAYBACK)", addr)
 	srv := &http.Server{Addr: addr, Handler: s.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
