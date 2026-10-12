@@ -2,7 +2,7 @@
 
 Experimental local-first **multiroom digital jukebox** for phones and browsers.
 
-**Current status:** a working, nonpersistent room-scoped *request-board prototype*. It **does not** search a real music catalogue, enqueue music in Music Assistant, control audio, group speakers, or play songs. These are [tracked delivery milestones](https://github.com/ryjen/jukebox/issues/1).
+**Current status:** a working, nonpersistent room-scoped *request-board prototype*. It has a **fixture-tested, optional read-only Music Assistant search and queue preview**, but has not been verified with a running Music Assistant server. It does not enqueue music, control audio, group speakers, or play songs. These are [tracked delivery milestones](https://github.com/ryjen/jukebox/issues/1).
 
 ## Product direction
 
@@ -45,7 +45,7 @@ curl -X POST -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
   http://127.0.0.1:8108/api/admin/revoke
 ```
 
-`JUKEBOX_CONFIG` can point to a custom JSON configuration. `JUKEBOX_LISTEN_ADDR` defaults to loopback. Non-loopback binding requires the explicit `JUKEBOX_ALLOW_REMOTE=1` opt-in, but this is **not a substitute for an authenticated HTTPS reverse proxy and network isolation**. Do not deploy this experimental prototype directly on a public interface.
+`JUKEBOX_CONFIG` can point to a custom JSON configuration. `JUKEBOX_LISTEN_ADDR` defaults to `127.0.0.1:8108`. **Direct non-loopback HTTP binding is forbidden**, including the former `JUKEBOX_ALLOW_REMOTE=1` override. Phones on the LAN require a separately reviewed HTTPS reverse proxy that forwards to the loopback listener, with authentication, rate limits and network isolation. No trusted-proxy header or automatic ingress is implemented; do not publish the prototype directly.
 
 ### Verify
 
@@ -72,7 +72,9 @@ Music Assistant's `music/search` command is also available in a **read-only cata
 
 The URL requires HTTPS unless the target is a literal loopback IP. Configure Jukebox and Music Assistant on a private network, and ensure their server-side credentials are restricted. There are no authenticated live Music Assistant tests yet; the protocol is validated using in-process fixtures.
 
-For a non-mutating, redacted live compatibility check of the pinned Music Assistant version, see [the read-only MA probe](docs/operations/ma-readonly-probe.md) (`go run ./cmd/ma-probe`). This probe never starts audio or modifies queues. Passing fixtures alone does not satisfy the real-instance integration gate.\n\n## Trust and operational limitations
+For a non-mutating, redacted live compatibility check of the pinned Music Assistant version, see [the read-only MA probe](docs/operations/ma-readonly-probe.md) (`go run ./cmd/ma-probe`). This probe never starts audio or modifies queues. Passing fixtures alone does not satisfy the real-instance integration gate.
+
+## Trust and operational limitations
 
 The host bearer is only read server-side; guest invite exchange is single-use and sessions are scoped to exactly one room. Room requests are bounded in memory and guest requests are **not** verified against music providers. Restart loses invites, sessions and requests. There is no persisted audit trail, token hashing, distributed limiting or production-grade reverse-proxy deployment.
 
