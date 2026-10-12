@@ -44,10 +44,10 @@ type invite struct {
 	Expires time.Time
 }
 type session struct {
-	ID      string
-	RoomID  string
-	Expires time.Time
-	Count   int
+	ID          string
+	RoomID      string
+	Expires     time.Time
+	Count       int
 	SearchCount int
 }
 type request struct {
