@@ -29,8 +29,8 @@ jobs:
           cache: false
       - name: Format, vet, test, and JS syntax
         run: |
-          gofmt -d cmd/jukebox/*.go internal/musicassistant/*.go
-          test -z "$(gofmt -l cmd/jukebox/*.go internal/musicassistant/*.go)"
+          gofmt -d cmd/jukebox/*.go cmd/ma-probe/*.go internal/musicassistant/*.go
+          test -z "$(gofmt -l cmd/jukebox/*.go cmd/ma-probe/*.go internal/musicassistant/*.go)"
           git diff --check
           go vet ./...
           go test -race ./...

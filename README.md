@@ -72,7 +72,7 @@ Music Assistant's `music/search` command is also available in a **read-only cata
 
 The URL requires HTTPS unless the target is a literal loopback IP. Configure Jukebox and Music Assistant on a private network, and ensure their server-side credentials are restricted. There are no authenticated live Music Assistant tests yet; the protocol is validated using in-process fixtures.
 
-## Trust and operational limitations
+For a non-mutating, redacted live compatibility check of the pinned Music Assistant version, see [the read-only MA probe](docs/operations/ma-readonly-probe.md) (`go run ./cmd/ma-probe`). This probe never starts audio or modifies queues. Passing fixtures alone does not satisfy the real-instance integration gate.\n\n## Trust and operational limitations
 
 The host bearer is only read server-side; guest invite exchange is single-use and sessions are scoped to exactly one room. Room requests are bounded in memory and guest requests are **not** verified against music providers. Restart loses invites, sessions and requests. There is no persisted audit trail, token hashing, distributed limiting or production-grade reverse-proxy deployment.
 
