@@ -158,3 +158,28 @@ func TestStaticSecurityHeaders(t *testing.T) {
 		t.Fatalf("missing security headers: %d", r.Code)
 	}
 }
+
+func TestRejectsOversizedAndMalformedBearer(t *testing.T) {
+	s, _ := fixture(t)
+	admin := strings.Repeat("a", 32)
+	invite := call(s, "POST", "/api/admin/invites", map[string]string{"roomId": "living"}, admin)
+	if invite.Code != 201 {
+		t.Fatalf("expected admin invite got %d", invite.Code)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/admin/invites", strings.NewReader(`{"roomId":"living"}`+strings.Repeat(" ", 5000)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+admin)
+	s.handler().ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("oversized JSON accepted: %d", rec.Code)
+	}
+	raw := httptest.NewRequest("POST", "/api/admin/invites", strings.NewReader(`{"roomId":"living"}`))
+	raw.Header.Set("Content-Type", "application/json")
+	raw.Header.Set("Authorization", admin)
+	result := httptest.NewRecorder()
+	s.handler().ServeHTTP(result, raw)
+	if result.Code != 401 {
+		t.Fatalf("bare token authorized: %d", result.Code)
+	}
+}

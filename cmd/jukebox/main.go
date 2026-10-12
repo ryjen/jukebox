@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
@@ -115,7 +116,11 @@ func decode(r *http.Request, v any) error {
 	if err != nil || mediaType != "application/json" {
 		return errors.New("application/json required")
 	}
-	d := json.NewDecoder(io.LimitReader(r.Body, 4097))
+	payload, err := io.ReadAll(io.LimitReader(r.Body, 4097))
+	if err != nil || len(payload) > 4096 {
+		return errors.New("request body too large")
+	}
+	d := json.NewDecoder(bytes.NewReader(payload))
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {
 		return err
@@ -127,11 +132,19 @@ func decode(r *http.Request, v any) error {
 	return nil
 }
 func (s *server) host(r *http.Request) bool {
-	candidate := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		return false
+	}
+	candidate := strings.TrimPrefix(header, "Bearer ")
 	return len(candidate) == len(s.adminToken) && subtle.ConstantTimeCompare([]byte(candidate), []byte(s.adminToken)) == 1
 }
 func (s *server) auth(r *http.Request, roomID string) bool {
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		return false
+	}
+	token := strings.TrimPrefix(header, "Bearer ")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess, ok := s.sessions[token]
