@@ -63,15 +63,15 @@ type request struct {
 	RequestedAt time.Time `json:"requestedAt"`
 }
 type server struct {
-	mu         sync.Mutex
-	rooms      map[string]room
-	invites    map[string]invite
-	sessions   map[string]*session
-	requests   map[string][]request
-	adminToken string
+	mu           sync.Mutex
+	rooms        map[string]room
+	invites      map[string]invite
+	sessions     map[string]*session
+	requests     map[string][]request
+	adminToken   string
 	selectionKey []byte
-	ma         *musicassistant.Client
-	now        func() time.Time
+	ma           *musicassistant.Client
+	now          func() time.Time
 }
 
 func newServer(cfg config, adminToken string, now func() time.Time) (*server, error) {
@@ -396,9 +396,9 @@ func (s *server) handler() http.Handler {
 		}
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		var body struct {
-			Title  string `json:"title"`
-			Artist string `json:"artist"`
-			Source string `json:"source"`
+			Title       string `json:"title"`
+			Artist      string `json:"artist"`
+			Source      string `json:"source"`
 			SelectionID string `json:"selectionId"`
 		}
 		if err := decode(r, &body); err != nil {
