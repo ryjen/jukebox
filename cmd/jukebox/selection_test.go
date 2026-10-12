@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,6 +103,9 @@ func TestCatalogSelectionStoresSearchIdentityWithoutTrustingBrowserFields(t *tes
 	if strings.Contains(ok.Body.String(), "filesystem://track/123") {
 		t.Fatal("raw URI leaked into guest request list")
 	}
+	if got := call(s, "POST", "/api/rooms/living/requests", map[string]string{"selectionId": choice}, guest).Code; got != 409 {
+		t.Fatalf("replayed catalogue selection accepted: %d", got)
+	}
 	s.mu.Lock()
 	items := s.requests["living"]
 	s.mu.Unlock()
@@ -119,4 +123,43 @@ func TestCatalogSelectionStoresSearchIdentityWithoutTrustingBrowserFields(t *tes
 	if manual.MediaURI != "" || manual.Source != "local" {
 		t.Fatalf("manual suggestion gained playback identity: %+v", manual)
 	}
+}
+
+// A selection represents exactly one intent; concurrent replay must not
+// create multiple entries or bypass per-session quotas.
+func TestConcurrentSelectionReplayIsSerialized(t *testing.T) {
+    s,_:=fixture(t)
+    guest:=join(t,s,"living")
+    choice,err:=s.signCatalogChoice("living",guest,musicassistant.Track{
+        URI:"filesystem://track/idempotent",Name:"One item",Artist:"Artist",Provider:"filesystem",
+    })
+    if err!=nil{t.Fatal(err)}
+    const n=12
+    results:=make(chan int,n)
+    var workers sync.WaitGroup
+    for i:=0;i<n;i++{
+        workers.Add(1)
+        go func(){
+            defer workers.Done()
+            response:=call(s,"POST","/api/rooms/living/requests",map[string]string{"selectionId":choice.SelectionID},guest)
+            results<-response.Code
+        }()
+    }
+    workers.Wait()
+    close(results)
+    accepted,duplicates:=0,0
+    for status:=range results {
+        switch status {
+        case 201: accepted++
+        case 409: duplicates++
+        default:t.Errorf("unexpected replay status %d",status)
+        }
+    }
+    if accepted!=1||duplicates!=n-1 {t.Fatalf("non-atomic replay handling: accepted=%d duplicates=%d",accepted,duplicates)}
+    s.mu.Lock()
+    recorded:=append([]request(nil),s.requests["living"]...)
+    s.mu.Unlock()
+    if len(recorded)!=1 || recorded[0].MediaURI!="filesystem://track/idempotent" {
+        t.Fatalf("selection replay added or corrupted requests: %+v",recorded)
+    }
 }

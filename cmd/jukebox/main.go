@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
 	"encoding/hex"
@@ -52,6 +53,7 @@ type session struct {
 	Expires     time.Time
 	Count       int
 	SearchCount int
+	UsedCatalogSelections map[[32]byte]struct{} // bounded by the per-session request quota
 }
 type request struct {
 	ID          string    `json:"id"`
@@ -430,6 +432,15 @@ func (s *server) handler() http.Handler {
 			fail(w, 403, "room access denied")
 			return
 		}
+		var choiceHash [32]byte
+		if body.SelectionID != "" {
+			choiceHash = sha256.Sum256([]byte(body.SelectionID))
+			if _, used := sess.UsedCatalogSelections[choiceHash]; used {
+				s.mu.Unlock()
+				fail(w, 409, "catalogue selection already submitted")
+				return
+			}
+		}
 		if sess.Count >= 5 || len(s.requests[id]) >= 50 {
 			s.mu.Unlock()
 			fail(w, 429, "request limit reached")
@@ -447,6 +458,12 @@ func (s *server) handler() http.Handler {
 			item.MediaURI, item.Provider = selected.URI, selected.Provider
 		}
 		s.requests[id] = append(s.requests[id], item)
+		if body.SelectionID != "" {
+			if sess.UsedCatalogSelections == nil {
+				sess.UsedCatalogSelections = make(map[[32]byte]struct{}, 5)
+			}
+			sess.UsedCatalogSelections[choiceHash] = struct{}{}
+		}
 		sess.Count++
 		s.mu.Unlock()
 		send(w, 201, map[string]any{"request": item, "playback": "not-connected"})
