@@ -64,8 +64,12 @@ func TestQueueDisabledAndGroupsDenied(t *testing.T) {
 		t.Fatal(got)
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var c struct { Command string `json:"command"` }
-		if err := json.NewDecoder(r.Body).Decode(&c); err != nil { t.Error(err) }
+		var c struct {
+			Command string `json:"command"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			t.Error(err)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if c.Command == "players/get" {
 			fmt.Fprint(w, `{"player_id":"p1","type":"player","available":true,"enabled":true,"group_members":[]}`)

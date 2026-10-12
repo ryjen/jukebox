@@ -208,8 +208,12 @@ func TestRejectNativeGroupCoordinatorAndUnknownPlayerState(t *testing.T) {
 func TestGroupMutationDuringQueueReadIsRejected(t *testing.T) {
 	var gets atomic.Int64
 	client, finish := localClient(t, func(w http.ResponseWriter, r *http.Request) {
-		var cmd struct { Command string `json:"command"` }
-		if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil { t.Error(err) }
+		var cmd struct {
+			Command string `json:"command"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+			t.Error(err)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		switch cmd.Command {
 		case "players/get":
@@ -222,7 +226,8 @@ func TestGroupMutationDuringQueueReadIsRejected(t *testing.T) {
 			fmt.Fprint(w, `{"queue_id":"room-1","state":"playing","current_index":1}`)
 		case "player_queues/items":
 			fmt.Fprint(w, `[{"queue_item_id":"item1","name":"Track"}]`)
-		default: t.Errorf("unexpected API command %q", cmd.Command)
+		default:
+			t.Errorf("unexpected API command %q", cmd.Command)
 		}
 	})
 	defer finish()
