@@ -117,14 +117,14 @@ func (c *Client) requireStandalonePlayer(ctx context.Context, playerID string) e
 		return err
 	}
 	var state struct {
-		PlayerID string   `json:"player_id"`
-		Type string       `json:"type"`
-		Available *bool   `json:"available"`
-		Enabled *bool     `json:"enabled"`
-		GroupMembers *[]string `json:"group_members"`
-		StaticGroupMembers []string `json:"static_group_members"`
-		SyncedTo *string  `json:"synced_to"`
-		ActiveGroup *string `json:"active_group"`
+		PlayerID           string    `json:"player_id"`
+		Type               string    `json:"type"`
+		Available          *bool     `json:"available"`
+		Enabled            *bool     `json:"enabled"`
+		GroupMembers       *[]string `json:"group_members"`
+		StaticGroupMembers []string  `json:"static_group_members"`
+		SyncedTo           *string   `json:"synced_to"`
+		ActiveGroup        *string   `json:"active_group"`
 	}
 	if err := json.Unmarshal(data, &state); err != nil ||
 		state.PlayerID != playerID || state.Type == "" ||
@@ -163,9 +163,9 @@ func (c *Client) ReadQueue(ctx context.Context, playerID string) (Snapshot, erro
 		return empty, ErrUnavailable
 	}
 	var active struct {
-		QueueID string `json:"queue_id"`
-		State   string `json:"state"`
-		CurrentIndex *int `json:"current_index"`
+		QueueID      string `json:"queue_id"`
+		State        string `json:"state"`
+		CurrentIndex *int   `json:"current_index"`
 	}
 	if err := json.Unmarshal(raw, &active); err != nil || active.QueueID == "" {
 		return empty, fmt.Errorf("%w: unknown queue response", ErrUnavailable)
