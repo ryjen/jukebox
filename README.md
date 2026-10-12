@@ -19,7 +19,7 @@ Requires Go 1.23+; no third-party packages. On a development machine:
 # Run in the repository root. Supply your own strong secret; do not commit it.
 export JUKEBOX_ADMIN_TOKEN="$(openssl rand -hex 32)"
 go run ./cmd/jukebox
-# Open http://127.0.0.1:8097 in a browser
+# Open http://127.0.0.1:8108 in a browser
 ```
 
 To create an **independent one-time** invitation for the `living-room` room:
@@ -29,7 +29,7 @@ curl --fail-with-body -sS \
   -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"roomId":"living-room"}' \
-  http://127.0.0.1:8097/api/admin/invites
+  http://127.0.0.1:8108/api/admin/invites
 ```
 
 Paste the `inviteCode` into the web page. It expires in ten minutes; the exchanged session is bound to one room for eight hours. Issue a different invitation for the `office` room. The room-to-player mapping in [`config.example.json`](config.example.json) is **declarative only** until Music Assistant integration.
@@ -38,11 +38,11 @@ Hosts can view active room sessions without accessing guest bearer tokens, then 
 
 ```sh
 curl -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
-  http://127.0.0.1:8097/api/admin/sessions
+  http://127.0.0.1:8108/api/admin/sessions
 curl -X POST -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"sessionId":"<id-from-list>"}' \
-  http://127.0.0.1:8097/api/admin/revoke
+  http://127.0.0.1:8108/api/admin/revoke
 ```
 
 `JUKEBOX_CONFIG` can point to a custom JSON configuration. `JUKEBOX_LISTEN_ADDR` defaults to loopback. Non-loopback binding requires the explicit `JUKEBOX_ALLOW_REMOTE=1` opt-in, but this is **not a substitute for an authenticated HTTPS reverse proxy and network isolation**. Do not deploy this experimental prototype directly on a public interface.

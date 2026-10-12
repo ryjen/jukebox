@@ -259,3 +259,9 @@ func TestUnicodeMetadataUsesCodepointsNotUTF8Bytes(t *testing.T) {
 		t.Fatalf("too many characters accepted: %d", got)
 	}
 }
+
+func TestDefaultListenPortDoesNotConflictWithMusicAssistant(t *testing.T) {
+	if !strings.HasPrefix(defaultListenAddr, "127.0.0.1:") || strings.HasSuffix(defaultListenAddr, ":8095") || strings.HasSuffix(defaultListenAddr, ":8097") {
+		t.Fatalf("jukebox default conflicts with Music Assistant or binds publicly: %s", defaultListenAddr)
+	}
+}
