@@ -14,9 +14,11 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 //go:embed web/*
@@ -40,6 +42,7 @@ type invite struct {
 	Expires time.Time
 }
 type session struct {
+	ID      string
 	RoomID  string
 	Expires time.Time
 	Count   int
@@ -206,21 +209,55 @@ func (s *server) handler() http.Handler {
 			return
 		}
 		s.mu.Lock()
-		defer s.mu.Unlock()
 		inv, ok := s.invites[body.InviteCode]
 		if !ok || !s.now().Before(inv.Expires) {
+			s.mu.Unlock()
 			fail(w, 401, "invalid or expired invitation")
 			return
 		}
 		token, err := secret()
 		if err != nil {
+			s.mu.Unlock()
+			fail(w, 503, "randomness unavailable")
+			return
+		}
+		id, err := secret() // Non-secret host-visible revocation handle.
+		if err != nil {
+			s.mu.Unlock()
 			fail(w, 503, "randomness unavailable")
 			return
 		}
 		delete(s.invites, body.InviteCode) // one-time consumption
 		expiry := s.now().Add(8 * time.Hour)
-		s.sessions[token] = &session{RoomID: inv.RoomID, Expires: expiry}
+		s.sessions[token] = &session{ID: id, RoomID: inv.RoomID, Expires: expiry}
+		s.mu.Unlock()
 		send(w, 201, map[string]any{"token": token, "roomId": inv.RoomID, "expiresAt": expiry})
+	})
+
+	mux.HandleFunc("GET /api/admin/sessions", func(w http.ResponseWriter, r *http.Request) {
+		if !s.host(r) {
+			fail(w, 401, "unauthorized")
+			return
+		}
+		type summary struct {
+			ID       string    `json:"id"`
+			RoomID   string    `json:"roomId"`
+			Expires  time.Time `json:"expiresAt"`
+			Requests int       `json:"requests"`
+		}
+		items := []summary{}
+		s.mu.Lock()
+		for token, sess := range s.sessions {
+			if !s.now().Before(sess.Expires) {
+				delete(s.sessions, token)
+				continue
+			}
+			items = append(items, summary{sess.ID, sess.RoomID, sess.Expires, sess.Count})
+		}
+		s.mu.Unlock()
+		// The host can revoke by the opaque ID; guest bearer tokens are never enumerated.
+		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+		send(w, 200, map[string]any{"sessions": items})
 	})
 	mux.HandleFunc("POST /api/admin/revoke", func(w http.ResponseWriter, r *http.Request) {
 		if !s.host(r) {
@@ -228,14 +265,19 @@ func (s *server) handler() http.Handler {
 			return
 		}
 		var body struct {
-			SessionToken string `json:"sessionToken"`
+			SessionID string `json:"sessionId"`
 		}
-		if err := decode(r, &body); err != nil {
+		if err := decode(r, &body); err != nil || len(body.SessionID) != 64 {
 			fail(w, 400, "invalid request")
 			return
 		}
 		s.mu.Lock()
-		delete(s.sessions, body.SessionToken)
+		for token, sess := range s.sessions {
+			if sess.ID == body.SessionID {
+				delete(s.sessions, token)
+				break
+			}
+		}
 		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -268,29 +310,32 @@ func (s *server) handler() http.Handler {
 		}
 		body.Title = strings.TrimSpace(body.Title)
 		body.Artist = strings.TrimSpace(body.Artist)
-		if len(body.Title) < 1 || len(body.Title) > 120 || len(body.Artist) > 120 || (body.Source != "local" && body.Source != "cloud") {
+		if body.Title == "" || utf8.RuneCountInString(body.Title) > 120 || utf8.RuneCountInString(body.Artist) > 120 || (body.Source != "local" && body.Source != "cloud") {
 			fail(w, 400, "invalid track metadata")
 			return
 		}
 		s.mu.Lock()
-		defer s.mu.Unlock()
 		sess, ok := s.sessions[token]
 		if !ok || !s.now().Before(sess.Expires) || sess.RoomID != id {
+			s.mu.Unlock()
 			fail(w, 403, "room access denied")
 			return
 		}
 		if sess.Count >= 5 || len(s.requests[id]) >= 50 {
+			s.mu.Unlock()
 			fail(w, 429, "request limit reached")
 			return
 		}
 		key, err := secret()
 		if err != nil {
+			s.mu.Unlock()
 			fail(w, 503, "randomness unavailable")
 			return
 		}
 		item := request{key, body.Title, body.Artist, body.Source, s.now()}
 		s.requests[id] = append(s.requests[id], item)
 		sess.Count++
+		s.mu.Unlock()
 		send(w, 201, map[string]any{"request": item, "playback": "not-connected"})
 	})
 	assets, _ := fs.Sub(webAssets, "web")

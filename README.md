@@ -34,6 +34,17 @@ curl --fail-with-body -sS \
 
 Paste the `inviteCode` into the web page. It expires in ten minutes; the exchanged session is bound to one room for eight hours. Issue a different invitation for the `office` room. The room-to-player mapping in [`config.example.json`](config.example.json) is **declarative only** until Music Assistant integration.
 
+Hosts can view active room sessions without accessing guest bearer tokens, then revoke a session by its admin-visible ID:
+
+```sh
+curl -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
+  http://127.0.0.1:8097/api/admin/sessions
+curl -X POST -H "Authorization: Bearer $JUKEBOX_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"sessionId":"<id-from-list>"}' \
+  http://127.0.0.1:8097/api/admin/revoke
+```
+
 `JUKEBOX_CONFIG` can point to a custom JSON configuration. `JUKEBOX_LISTEN_ADDR` defaults to loopback. Non-loopback binding requires the explicit `JUKEBOX_ALLOW_REMOTE=1` opt-in, but this is **not a substitute for an authenticated HTTPS reverse proxy and network isolation**. Do not deploy this experimental prototype directly on a public interface.
 
 ### Verify

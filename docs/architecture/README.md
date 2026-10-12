@@ -31,7 +31,7 @@ The Party plugin is in [`music-assistant/server/music_assistant/providers/party`
 - A valid invite exchanges for a random 8-hour room-bound bearer, held only in the browser tab session store.
 - A guest can read/submit up to five **request intentions** to their room; at most 50 are stored per room. No provider lookup or playback occurs.
 - The in-memory store serializes requests but has **no persistence, distributed consistency, meaningful per-device anti-abuse, global rate limiting or automatic expiry garbage collection**. It is not suitable for untrusted public-network exposure.
-- Revoke guest session via host API; closing a tab only forgets the local bearer, not revokes it.
+- Hosts enumerate active sessions by non-secret session ID via `GET /api/admin/sessions`, then revoke with `POST /api/admin/revoke` and a `sessionId`. The admin API never returns guest bearer tokens. Closing a tab only forgets the local bearer, not revokes it.
 - Bind to loopback by default. Any exposed deployment requires a reviewed TLS/authenticated reverse-proxy boundary; opt-in listen configuration is not itself a security review.
 - The prototype deliberately does not accept a guest URL or query-string credential.
 

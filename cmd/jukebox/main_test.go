@@ -90,7 +90,15 @@ func TestInvitesExpireOneTimeAndRevoke(t *testing.T) {
 	inv := call(s, "POST", "/api/admin/invites", map[string]string{"roomId": "living"}, strings.Repeat("a", 32))
 	code := getJSON(t, inv, "inviteCode")
 	tok := join(t, s, "living")
-	call(s, "POST", "/api/admin/revoke", map[string]string{"sessionToken": tok}, strings.Repeat("a", 32))
+	list := call(s, "GET", "/api/admin/sessions", nil, strings.Repeat("a", 32))
+	var listing struct { Sessions []struct { ID string `json:"id"`; RoomID string `json:"roomId"` } `json:"sessions"` }
+	if err := json.Unmarshal(list.Body.Bytes(), &listing); err != nil || len(listing.Sessions) != 1 || listing.Sessions[0].RoomID != "living" {
+		t.Fatalf("invalid admin session listing: %s / %v", list.Body.String(), err)
+	}
+	if strings.Contains(list.Body.String(), tok) {
+		t.Fatal("session token leaked to admin listing")
+	}
+	call(s, "POST", "/api/admin/revoke", map[string]string{"sessionId": listing.Sessions[0].ID}, strings.Repeat("a", 32))
 	if got := call(s, "GET", "/api/rooms/living/requests", nil, tok).Code; got != 403 {
 		t.Fatalf("revoked session: %d", got)
 	}
@@ -181,5 +189,52 @@ func TestRejectsOversizedAndMalformedBearer(t *testing.T) {
 	s.handler().ServeHTTP(result, raw)
 	if result.Code != 401 {
 		t.Fatalf("bare token authorized: %d", result.Code)
+	}
+}
+
+func TestHostCanRevokeByNonSecretSessionID(t *testing.T) {
+	s, now := fixture(t)
+	living := join(t, s, "living")
+	office := join(t, s, "office")
+	admin := strings.Repeat("a", 32)
+	if got := call(s, "GET", "/api/admin/sessions", nil, living).Code; got != 401 {
+		t.Fatalf("guest enumerated sessions: %d", got)
+	}
+	rec := call(s, "GET", "/api/admin/sessions", nil, admin)
+	var found struct {
+		Sessions []struct {
+			ID string `json:"id"`
+			RoomID string `json:"roomId"`
+			Expires time.Time `json:"expiresAt"`
+		} `json:"sessions"`
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &found) != nil || len(found.Sessions) != 2 {
+		t.Fatalf("listing: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), living) || strings.Contains(rec.Body.String(), office) {
+		t.Fatal("guest token disclosed by admin listing")
+	}
+	var id string
+	for _, sess := range found.Sessions { if sess.RoomID == "living" { id = sess.ID } }
+	if len(id) != 64 { t.Fatalf("invalid stable revocation identifier: %q", id) }
+	if got := call(s, "POST", "/api/admin/revoke", map[string]string{"sessionId": id}, admin).Code; got != 204 { t.Fatalf("revoke: %d", got) }
+	if got := call(s, "GET", "/api/rooms/living/requests", nil, living).Code; got != 403 { t.Fatalf("revoked user still authorized: %d", got) }
+	if got := call(s, "GET", "/api/rooms/office/requests", nil, office).Code; got != 200 { t.Fatalf("unrelated room was revoked: %d", got) }
+	if got := call(s, "POST", "/api/admin/revoke", map[string]string{"sessionId": id}, admin).Code; got != 204 { t.Fatalf("revoke retry: %d", got) }
+	*now = now.Add(9 * time.Hour)
+	rec = call(s, "GET", "/api/admin/sessions", nil, admin)
+	if !strings.Contains(rec.Body.String(), `"sessions":[]`) { t.Fatalf("expired sessions listed: %s", rec.Body.String()) }
+}
+
+func TestUnicodeMetadataUsesCodepointsNotUTF8Bytes(t *testing.T) {
+	s, _ := fixture(t)
+	tok := join(t, s, "living")
+	for _, data := range []string{strings.Repeat("曲", 61), strings.Repeat("♫", 120)} {
+		if got := call(s, "POST", "/api/rooms/living/requests", map[string]string{"title": data, "artist": strings.Repeat("中", 60), "source": "local"}, tok).Code; got != 201 {
+			t.Fatalf("valid Unicode rejected: %d", got)
+		}
+	}
+	if got := call(s, "POST", "/api/rooms/living/requests", map[string]string{"title": strings.Repeat("♫", 121), "source": "local"}, tok).Code; got != 400 {
+		t.Fatalf("too many characters accepted: %d", got)
 	}
 }
